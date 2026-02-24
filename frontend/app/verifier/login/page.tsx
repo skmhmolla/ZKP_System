@@ -1,97 +1,156 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { QrCode, Mail, Lock, Loader2, AlertTriangle, ArrowLeft } from "lucide-react";
-import Link from "next/link";
+import { motion } from "framer-motion";
+import { Building2, Mail, Lock, CheckCircle2, AlertCircle, ArrowRight } from "lucide-react";
+import { signUpWithEmail, loginWithEmail } from "@/lib/auth";
 import { useAuth } from "@/context/AuthContext";
-import { loginWithEmail } from "@/lib/auth";
+import { ADMIN_EMAILS } from "@/config/admin";
+import { logoutUser } from "@/lib/auth";
 
 export default function VerifierLoginPage() {
-    const { authStatus, backendProfile } = useAuth();
-    const router = useRouter();
-
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState("");
+    const [mode, setMode] = useState<"login" | "signup">("login");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
+    const [orgName, setOrgName] = useState("");
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [success, setSuccess] = useState(false);
+    const { refreshProfile } = useAuth();
+    const router = useRouter();
 
-    useEffect(() => {
-        if (authStatus === "authenticated" && backendProfile?.role === "verifier") {
-            router.replace("/verifier");
-        }
-    }, [authStatus, backendProfile, router]);
-
-    const handleLogin = async (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        setLoading(true); setError("");
-        const result = await loginWithEmail(email, password);
-        if (result.error) {
-            setError(result.error);
-            setLoading(false);
+        setLoading(true);
+        setError(null);
+        try {
+            if (mode === "signup") {
+                const result = await signUpWithEmail(email, password, "verifier", orgName, { orgName });
+                if (result.error) {
+                    setError(result.error);
+                } else {
+                    setSuccess(true);
+                }
+            } else {
+                const result = await loginWithEmail(email, password);
+                if (result.user?.email && ADMIN_EMAILS.includes(result.user.email)) {
+                    await logoutUser();
+                    setError("Admin accounts cannot login as Verifier");
+                } else if (result.error) {
+                    setError(result.error);
+                } else {
+                    await refreshProfile();
+                    router.replace("/verifier");
+                }
+            }
+        } catch (err) {
+            setError("Authentication failed");
         }
+        setLoading(false);
     };
 
-    return (
-        <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-blue-950 via-[#0a0f1e] to-black flex items-center justify-center p-4">
-            <div className="w-full max-w-md">
-                <Link href="/" className="flex items-center gap-2 text-slate-500 hover:text-white text-sm mb-8 transition-colors w-fit">
-                    <ArrowLeft className="w-4 h-4" /> Back to Portal
-                </Link>
-
-                <div className="text-center mb-8">
-                    <div className="inline-flex items-center justify-center w-20 h-20 bg-blue-500/10 border border-blue-500/20 rounded-3xl mb-6 shadow-2xl shadow-blue-500/5">
-                        <QrCode className="w-10 h-10 text-blue-500" />
+    if (success) {
+        return (
+            <div className="min-h-screen bg-[#050B18] flex items-center justify-center p-6 bg-noise">
+                <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="max-w-md w-full text-center">
+                    <div className="bg-white/5 backdrop-blur-xl border border-white/10 p-12 rounded-[3rem]">
+                        <div className="w-20 h-20 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-8">
+                            <CheckCircle2 className="w-10 h-10 text-emerald-400" />
+                        </div>
+                        <h2 className="text-3xl font-bold text-white mb-4">Registration Received</h2>
+                        <p className="text-gray-400 mb-8 leading-relaxed">
+                            Your organization registration for <span className="text-white font-semibold">{orgName}</span> has been submitted.
+                            An administrator will review your request and approve access shortly.
+                        </p>
+                        <button onClick={() => setSuccess(false)} className="text-blue-400 hover:underline">Back to Login</button>
                     </div>
-                    <h1 className="text-white font-bold text-3xl tracking-tight mb-2">Verifier Access</h1>
-                    <p className="text-slate-500">Official PrivaSeal Verification Portal</p>
-                </div>
+                </motion.div>
+            </div>
+        );
+    }
 
-                <div className="bg-slate-900/50 border border-white/5 rounded-3xl p-8 shadow-2xl backdrop-blur-xl">
-                    <form onSubmit={handleLogin} className="space-y-5">
-                        <div>
-                            <label className="text-slate-400 text-xs font-medium mb-2 block uppercase tracking-wider">Verifier Email</label>
-                            <div className="relative">
-                                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-600" />
-                                <input
-                                    required type="email"
-                                    placeholder="verifier@privaseal.com"
-                                    value={email} onChange={e => setEmail(e.target.value)}
-                                    className="w-full bg-slate-950 border border-white/5 rounded-2xl pl-12 pr-4 py-4 text-white placeholder-slate-700 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/10 transition-all"
-                                />
-                            </div>
+    return (
+        <div className="min-h-screen bg-[#050B18] flex items-center justify-center p-6 bg-noise">
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-md w-full">
+                <div className="bg-white/5 backdrop-blur-xl border border-white/10 p-8 rounded-[2.5rem] shadow-2xl">
+                    <div className="text-center mb-10">
+                        <div className="w-16 h-16 bg-emerald-500/20 rounded-2xl flex items-center justify-center mx-auto mb-6 border border-emerald-500/30">
+                            <Building2 className="w-8 h-8 text-emerald-400" />
                         </div>
+                        <h1 className="text-3xl font-bold text-white mb-2">Verifier Portal</h1>
+                        <p className="text-gray-400">Enterprise Verification Services</p>
+                    </div>
 
-                        <div>
-                            <label className="text-slate-400 text-xs font-medium mb-2 block uppercase tracking-wider">Passphrase</label>
-                            <div className="relative">
-                                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-600" />
-                                <input
-                                    required type="password"
-                                    placeholder="••••••••"
-                                    value={password} onChange={e => setPassword(e.target.value)}
-                                    className="w-full bg-slate-950 border border-white/5 rounded-2xl pl-12 pr-4 py-4 text-white placeholder-slate-700 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/10 transition-all"
-                                />
-                            </div>
+                    {error && (
+                        <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center gap-3 text-red-400 text-sm">
+                            <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                            {error}
                         </div>
+                    )}
 
-                        {error && (
-                            <div className="flex items-start gap-3 bg-red-500/10 border border-red-500/20 rounded-2xl px-4 py-3">
-                                <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-                                <p className="text-red-200 text-sm">{error}</p>
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        {mode === "signup" && (
+                            <div className="relative group">
+                                <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 group-focus-within:text-emerald-400 transition-colors" />
+                                <input
+                                    type="text"
+                                    placeholder="Organization Name"
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl py-4 pl-12 pr-4 text-white focus:outline-none focus:border-emerald-500/50 transition-all"
+                                    value={orgName}
+                                    onChange={(e) => setOrgName(e.target.value)}
+                                    required
+                                />
                             </div>
                         )}
+                        <div className="relative group">
+                            <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 group-focus-within:text-emerald-400 transition-colors" />
+                            <input
+                                type="email"
+                                placeholder="Organization Email"
+                                className="w-full bg-white/5 border border-white/10 rounded-xl py-4 pl-12 pr-4 text-white focus:outline-none focus:border-emerald-500/50 transition-all"
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
+                                required
+                            />
+                        </div>
+                        <div className="relative group">
+                            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 group-focus-within:text-emerald-400 transition-colors" />
+                            <input
+                                type="password"
+                                placeholder="Password"
+                                className="w-full bg-white/5 border border-white/10 rounded-xl py-4 pl-12 pr-4 text-white focus:outline-none focus:border-emerald-500/50 transition-all"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                required
+                            />
+                        </div>
 
                         <button
                             type="submit"
                             disabled={loading}
-                            className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold py-4 rounded-2xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20 mt-2"
+                            className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold transition-all shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2"
                         >
-                            {loading ? <><Loader2 className="w-5 h-5 animate-spin" /> Verifying Credentials...</> : <><QrCode className="w-5 h-5" /> Verifier Sign-in</>}
+                            {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : (mode === "login" ? "Sign In" : "Register Organization")}
+                            <ArrowRight className="w-5 h-5" />
                         </button>
                     </form>
+
+                    <div className="text-center mt-8">
+                        <button
+                            type="button"
+                            onClick={() => setMode(mode === "login" ? "signup" : "login")}
+                            className="text-sm text-gray-400 hover:text-white transition-colors"
+                        >
+                            {mode === "login" ? (
+                                <>Need to register your organization? <span className="text-emerald-400 font-semibold">Sign Up</span></>
+                            ) : (
+                                <>Already have an account? <span className="text-emerald-400 font-semibold">Sign In</span></>
+                            )}
+                        </button>
+                    </div>
                 </div>
-            </div>
+            </motion.div>
         </div>
     );
 }

@@ -1,27 +1,16 @@
 "use client";
 
-import { IssuerSidebar } from "@/components/issuer/IssuerSidebar";
-import RoleGuard from "@/components/RoleGuard";
+import React from "react";
 
-export default function IssuerLayout({
+/**
+ * Root layout for all /issuer routes.
+ * This layout is intentionally minimal to avoid wrapping the login page 
+ * in dashboard components like Sidebars.
+ */
+export default function IssuerRootLayout({
     children,
 }: {
     children: React.ReactNode;
 }) {
-    return (
-        <RoleGuard allowedRoles={["admin", "issuer"]}>
-            <div className="flex bg-slate-950 min-h-screen text-slate-100 font-primary antialiased">
-                <IssuerSidebar />
-                <main className="flex-1 ml-72 overflow-y-auto min-h-screen relative p-4 lg:p-10">
-                    {/* Decorative background elements */}
-                    <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-600/5 blur-[120px] -z-10 rounded-full pointer-events-none" />
-                    <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-indigo-600/5 blur-[120px] -z-10 rounded-full pointer-events-none" />
-
-                    <div className="max-w-[1600px] mx-auto animate-in fade-in slide-in-from-bottom-2 duration-700">
-                        {children}
-                    </div>
-                </main>
-            </div>
-        </RoleGuard>
-    );
+    return <>{children}</>;
 }

@@ -14,7 +14,8 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
     const publicRoutes = [
         "/",
         "/login",
-        "/admin/login",
+        "/issuer/login",
+        "/wallet/login",
         "/verifier/login",
         "/unauthorized",
         "/docs"
@@ -27,9 +28,10 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
     }
 
     return (
-        <div className="min-h-screen bg-slate-950">
+        <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_#0f172a,_#020617)] text-slate-200 selection:bg-blue-500/30">
+
             <Navbar />
-            <div className="pt-16">
+            <div className="pt-16 relative z-10">
                 {isPublic ? (
                     <>{children}</>
                 ) : (

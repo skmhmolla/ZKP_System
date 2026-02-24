@@ -4,7 +4,7 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { AuthProvider } from "@/context/AuthContext";
 import { ClientLayout } from "@/components/ClientLayout";
-import { DemoProvider } from "@/context/DemoContext";
+
 
 const inter = Inter({
   subsets: ["latin"],
@@ -52,11 +52,9 @@ export default function RootLayout({
       >
         {/* AuthProvider wraps the entire app — Firebase session persists globally */}
         <AuthProvider>
-          <DemoProvider>
-            <ClientLayout>
-              {children}
-            </ClientLayout>
-          </DemoProvider>
+          <ClientLayout>
+            {children}
+          </ClientLayout>
           <Toaster />
         </AuthProvider>
       </body>

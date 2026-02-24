@@ -28,7 +28,7 @@ interface AuthResult {
 }
 
 // ── Helper: create backend user record after first Firebase login ───────────────
-export async function syncUserToBackend(user: User): Promise<any> {
+export async function syncUserToBackend(user: User, role: string = "holder", extraData: any = {}): Promise<any> {
     try {
         const idToken = await user.getIdToken();
         const r = await fetch(`${BACKEND}/api/privaseal/user/firebase-sync`, {
@@ -37,17 +37,19 @@ export async function syncUserToBackend(user: User): Promise<any> {
             body: JSON.stringify({
                 firebase_uid: user.uid,
                 email: user.email || "",
-                display_name: user.displayName || "",
+                display_name: user.displayName || user.phoneNumber || "",
                 phone_number: user.phoneNumber || "",
                 photo_url: user.photoURL || "",
                 provider: user.providerData[0]?.providerId || "unknown",
                 id_token: idToken,
+                role: role,
+                ...extraData
             }),
         });
         const data = await r.json();
         return data.success ? data : null;
-    } catch {
-        console.warn("[PrivaSeal] Backend user sync failed");
+    } catch (e) {
+        console.warn("[PrivaSeal] Backend user sync failed", e);
         return null;
     }
 }
@@ -56,7 +58,8 @@ export async function fetchBackendProfile(uid: string): Promise<any> {
     try {
         const r = await fetch(`${BACKEND}/api/privaseal/user/auth/me?uid=${uid}`);
         if (!r.ok) return null;
-        return await r.json();
+        const data = await r.json();
+        return data.success ? data.profile : null;
     } catch {
         return null;
     }
@@ -66,7 +69,9 @@ export async function fetchBackendProfile(uid: string): Promise<any> {
 export async function signUpWithEmail(
     email: string,
     password: string,
+    role: string = "holder",
     displayName?: string,
+    extraData: any = {}
 ): Promise<AuthResult> {
     try {
         const auth = getFirebaseAuth();
@@ -74,7 +79,7 @@ export async function signUpWithEmail(
         if (displayName) {
             await updateProfile(cred.user, { displayName });
         }
-        await syncUserToBackend(cred.user);
+        await syncUserToBackend(cred.user, role, extraData);
         return { user: cred.user, error: null };
     } catch (e: unknown) {
         return { user: null, error: friendlyError(e) };
@@ -88,6 +93,7 @@ export async function loginWithEmail(
     try {
         const auth = getFirebaseAuth();
         const cred = await signInWithEmailAndPassword(auth, email, password);
+        // Sync without overriding role if it exists, or the backend handles it
         await syncUserToBackend(cred.user);
         return { user: cred.user, error: null };
     } catch (e: unknown) {
@@ -96,12 +102,12 @@ export async function loginWithEmail(
 }
 
 // ── Google OAuth ───────────────────────────────────────────────────────────────
-export async function loginWithGoogle(): Promise<AuthResult> {
+export async function loginWithGoogle(role: string = "holder"): Promise<AuthResult> {
     try {
         const auth = getFirebaseAuth();
         const provider = getGoogleProvider();
         const cred = await signInWithPopup(auth, provider);
-        await syncUserToBackend(cred.user);
+        await syncUserToBackend(cred.user, role);
         return { user: cred.user, error: null };
     } catch (e: unknown) {
         return { user: null, error: friendlyError(e) };
@@ -130,14 +136,14 @@ export async function loginWithPhoneOTP(phoneNumber: string): Promise<{ error: s
     }
 }
 
-export async function confirmPhoneOTP(otp: string): Promise<AuthResult> {
+export async function confirmPhoneOTP(otp: string, role: string = "holder"): Promise<AuthResult> {
     if (!_confirmationResult) {
         return { user: null, error: "OTP session expired. Please request a new code." };
     }
     try {
         const cred = await _confirmationResult.confirm(otp);
         _confirmationResult = null;
-        await syncUserToBackend(cred.user);
+        await syncUserToBackend(cred.user, role);
         return { user: cred.user, error: null };
     } catch (e: unknown) {
         return { user: null, error: friendlyError(e) };

@@ -1,20 +1,44 @@
 "use client";
 
 import Link from "next/link";
-import { ShieldCheck, UserCircle, Briefcase, ScanLine, BarChart3, Menu, X, Wallet } from "lucide-react";
+import { ShieldCheck, UserCircle, Briefcase, ScanLine, BarChart3, Menu, X, Wallet, LogOut } from "lucide-react";
 import { useState } from "react";
 import { usePathname } from "next/navigation";
+
+import { useAuth } from "@/context/AuthContext";
+import { useRouter } from "next/navigation";
 
 export default function Navbar() {
     const [isOpen, setIsOpen] = useState(false);
     const pathname = usePathname();
+    const router = useRouter();
+    const { currentUser, backendProfile, logout } = useAuth();
 
-    const navItems = [
-        { name: "Issuer Portal", href: "/issuer", icon: <Briefcase className="w-4 h-4" /> },
-        { name: "Holder Wallet", href: "/wallet", icon: <Wallet className="w-4 h-4" /> },
-        { name: "Verifier Portal", href: "/verifier", icon: <ScanLine className="w-4 h-4" /> },
+    const handleLogout = async () => {
+        await logout();
+        router.replace("/");
+    };
+
+    let navItems = [
         { name: "Benchmarks", href: "/benchmarks", icon: <BarChart3 className="w-4 h-4" /> },
     ];
+
+    if (backendProfile?.role === "admin") {
+        navItems = [
+            { name: "Issuer Portal", href: "/issuer", icon: <Briefcase className="w-4 h-4" /> },
+            ...navItems
+        ];
+    } else if (backendProfile?.role === "holder") {
+        navItems = [
+            { name: "Holder Wallet", href: "/wallet", icon: <Wallet className="w-4 h-4" /> },
+            ...navItems
+        ];
+    } else if (backendProfile?.role === "verifier") {
+        navItems = [
+            { name: "Verifier Portal", href: "/verifier", icon: <ScanLine className="w-4 h-4" /> },
+            ...navItems
+        ];
+    }
 
     const isActive = (path: string) => pathname === path;
 
@@ -46,6 +70,15 @@ export default function Navbar() {
                                     {item.name}
                                 </Link>
                             ))}
+                            {currentUser && (
+                                <button
+                                    onClick={handleLogout}
+                                    className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium text-slate-400 hover:text-red-400 hover:bg-red-500/5 transition-all border border-transparent"
+                                >
+                                    <LogOut className="w-4 h-4" />
+                                    Logout
+                                </button>
+                            )}
                         </div>
                     </div>
 
@@ -78,6 +111,15 @@ export default function Navbar() {
                             {item.name}
                         </Link>
                     ))}
+                    {currentUser && (
+                        <button
+                            onClick={handleLogout}
+                            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-base font-medium text-slate-400 hover:text-red-400 hover:bg-red-500/5 transition-all"
+                        >
+                            <LogOut className="w-5 h-5" />
+                            Logout
+                        </button>
+                    )}
                 </div>
             )}
         </nav>

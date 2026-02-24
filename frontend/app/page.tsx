@@ -4,7 +4,6 @@ import { Navbar } from "@/components/landing/Navbar";
 import { Hero } from "@/components/landing/Hero";
 import { ProblemSection } from "@/components/landing/ProblemSection";
 import { SolutionSection } from "@/components/landing/SolutionSection";
-import { RolesSection } from "@/components/landing/RolesSection";
 import { Applications } from "@/components/landing/Applications";
 import { CTA } from "@/components/landing/CTA";
 import { Footer } from "@/components/landing/Footer";
@@ -28,7 +27,7 @@ export default function Home() {
 
         <SolutionSection />
 
-        <RolesSection />
+
 
         <div className="relative">
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-[500px] bg-blue-600/5 blur-[120px] -z-10 rounded-full" />

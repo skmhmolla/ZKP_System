@@ -12,8 +12,16 @@ import {
     Network, X, Trash2, ArrowUpRight
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
-import { useDemoData, Credential } from "@/context/DemoContext";
 import RoleGuard from "@/components/RoleGuard";
+
+export interface Credential {
+    id: string;
+    type: string;
+    status: "Active" | "Revoked" | "Pending";
+    issuer: string;
+    date: string;
+    attributes: Record<string, string | number>;
+}
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -25,7 +33,7 @@ import { cn } from "@/lib/utils";
 
 function WalletPortalContent() {
     const { backendProfile } = useAuth();
-    const { credentials } = useDemoData();
+    const credentials: Credential[] = [];
     const { toast } = useToast();
 
     // UI States
@@ -80,7 +88,7 @@ function WalletPortalContent() {
     };
 
     return (
-        <div className="min-h-screen bg-slate-950 pb-20 overflow-x-hidden">
+        <div className="min-h-screen bg-transparent p-4 md:p-8 overflow-x-hidden">
             <div className="max-w-7xl mx-auto px-4 md:px-8 pt-10 space-y-10">
 
                 {/* --- TOP BAR --- */}
@@ -329,7 +337,7 @@ function WalletPortalContent() {
             {/* --- PROOF GENERATION MODAL (OVERLAY) --- */}
             <AnimatePresence>
                 {isProving && selectedCred && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-noise">
                         <motion.div
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
@@ -515,7 +523,7 @@ function WalletPortalContent() {
 
 export default function WalletPortal() {
     return (
-        <RoleGuard allowedRoles={["user", "admin", "issuer"]}>
+        <RoleGuard allowedRoles={["holder"]}>
             <WalletPortalContent />
         </RoleGuard>
     );
