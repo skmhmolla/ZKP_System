@@ -7,8 +7,16 @@ import {
     Loader2, ArrowRight, Activity, Filter, RefreshCcw, Info
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
-import { useDemoData, VerificationLog } from "@/context/DemoContext";
 import RoleGuard from "@/components/RoleGuard";
+
+export interface VerificationLog {
+    id?: string;
+    checkedId: string;
+    result: "Verified" | "Not Verified";
+    type: string;
+    timestamp: string;
+    verifier: string;
+}
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,13 +26,38 @@ import { motion, AnimatePresence } from "framer-motion";
 
 function VerifierPortalContent() {
     const { backendProfile } = useAuth();
-    const { verificationLogs, addVerificationLog } = useDemoData();
+    const [verificationLogs, setVerificationLogs] = useState<VerificationLog[]>([]);
+    const addVerificationLog = (log: any) => {
+        setVerificationLogs(prev => [log, ...prev]);
+    };
     const { toast } = useToast();
 
     const [inputId, setInputId] = useState("");
     const [isChecking, setIsChecking] = useState(false);
     const [result, setResult] = useState<VerificationLog | null>(null);
     const [verifyingMode, setVerifyingMode] = useState<"id" | "qr">("id");
+
+    // Approval Check
+    if (backendProfile?.role === "verifier" && !backendProfile?.approved) {
+        return (
+            <div className="min-h-screen bg-transparent flex items-center justify-center p-6 bg-noise">
+                <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="max-w-md w-full text-center">
+                    <div className="bg-white/5 backdrop-blur-xl border border-white/10 p-12 rounded-[3rem]">
+                        <div className="w-20 h-20 bg-amber-500/20 rounded-full flex items-center justify-center mx-auto mb-8 animate-pulse">
+                            <Clock className="w-10 h-10 text-amber-400" />
+                        </div>
+                        <h2 className="text-3xl font-bold text-white mb-4">Awaiting Approval</h2>
+                        <p className="text-gray-400 mb-8 leading-relaxed">
+                            Your organization account for <span className="text-white font-semibold">{backendProfile.name}</span> is currently pending administrative review.
+                        </p>
+                        <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-400 text-sm">
+                            Access will be granted once an administrator approves your request.
+                        </div>
+                    </div>
+                </motion.div>
+            </div>
+        );
+    }
 
     const handleVerify = async (e?: React.FormEvent) => {
         if (e) e.preventDefault();
@@ -33,37 +66,50 @@ function VerifierPortalContent() {
         setIsChecking(true);
         setResult(null);
 
-        // Simulate network and cryptographic verification
-        await new Promise(r => setTimeout(r, 2000));
+        try {
+            const res = await fetch("/api/privaseal/verifier/check", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    privaseal_id: inputId,
+                    qr_data: verifyingMode === "qr" ? inputId : null
+                })
+            });
 
-        // Logic: Verified if ID doesn't contain "FAIL" or "NO"
-        const isVerified = !inputId.toUpperCase().includes("FAIL") && !inputId.toUpperCase().includes("NO");
+            const data = await res.json();
+            const isVerified = data.found && data.valid;
 
-        const newLog = {
-            checkedId: inputId || "QR-SESSION-9921",
-            result: (isVerified ? "Verified" : "Not Verified") as VerificationLog["result"],
-            type: "Universal Check",
-            verifier: backendProfile?.name || "Local Verifier"
-        };
+            const newLog: VerificationLog = {
+                id: `LOG-${Date.now()}`,
+                checkedId: inputId || "QR-SCAN",
+                result: (isVerified ? "Verified" : "Not Verified") as VerificationLog["result"],
+                type: data.credential_type || "Universal Check",
+                verifier: backendProfile?.name || "Local Verifier",
+                timestamp: new Date().toISOString()
+            };
 
-        addVerificationLog(newLog);
-        setResult({
-            ...newLog,
-            id: `LOG-${Math.floor(100 + Math.random() * 899)}`,
-            timestamp: new Date().toISOString()
-        });
+            setVerificationLogs(prev => [newLog, ...prev]);
+            setResult(newLog);
 
-        setIsChecking(false);
-
-        toast({
-            title: isVerified ? "Verification Successful" : "Verification Failed",
-            description: isVerified ? "Cryptographic proof is valid." : "Invalid proof or expired credential.",
-            variant: isVerified ? "default" : "destructive"
-        });
+            toast({
+                title: isVerified ? "Verification Successful" : "Verification Failed",
+                description: isVerified ? (data.message || "Cryptographic proof is valid.") : (data.message || "Invalid proof or expired credential."),
+                variant: isVerified ? "default" : "destructive"
+            });
+        } catch (err) {
+            console.error("Verification error:", err);
+            toast({
+                title: "Error",
+                description: "Failed to communicate with the verification server.",
+                variant: "destructive"
+            });
+        } finally {
+            setIsChecking(false);
+        }
     };
 
     return (
-        <div className="min-h-screen bg-slate-950 p-4 md:p-8">
+        <div className="min-h-screen bg-transparent p-4 md:p-8">
             <div className="max-w-6xl mx-auto space-y-8">
 
                 {/* Header */}
@@ -265,7 +311,7 @@ function VerifierPortalContent() {
 
 export default function VerifierPortal() {
     return (
-        <RoleGuard allowedRoles={["admin", "verifier", "user"]}>
+        <RoleGuard allowedRoles={["verifier"]}>
             <VerifierPortalContent />
         </RoleGuard>
     );

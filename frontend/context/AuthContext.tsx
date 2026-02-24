@@ -19,7 +19,7 @@ import React, {
 } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { getFirebaseAuth } from "@/lib/firebase";
-import { logoutUser } from "@/lib/auth";
+import { logoutUser, fetchBackendProfile } from "@/lib/auth";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 export type AuthStatus = "loading" | "authenticated" | "unauthenticated";
@@ -31,6 +31,7 @@ interface BackendProfile {
     email: string;
     docs_uploaded: boolean;
     role: string;
+    approved?: boolean;
 }
 
 interface AuthContextValue {
@@ -56,30 +57,60 @@ const AuthContext = createContext<AuthContextValue>({
 
 // ── Provider ───────────────────────────────────────────────────────────────────
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-    // TEMPORARILY MODIFIED: Defaulting to authenticated for demo/dev
     const [currentUser, setCurrentUser] = useState<User | null>(null);
-    const [backendProfile, setBackendProfile] = useState<BackendProfile | null>({
-        user_id: "DEMO-USER-01",
-        firebase_uid: "demo-uid",
-        name: "PrivaSeal Admin",
-        email: "admin@privaseal.io",
-        docs_uploaded: true,
-        role: "admin"
-    });
-    const [loading, setLoading] = useState(false);
-    const [idToken, setIdToken] = useState<string | null>("demo-token");
-
-    const BACKEND = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+    const [backendProfile, setBackendProfile] = useState<BackendProfile | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [idToken, setIdToken] = useState<string | null>(null);
 
     const refreshProfile = useCallback(async () => {
-        // No-op in demo mode
+        if (!currentUser) {
+            setBackendProfile(null);
+            return;
+        }
+        try {
+            const profile = await fetchBackendProfile(currentUser.uid);
+            if (profile) {
+                setBackendProfile(profile);
+            }
+        } catch (error) {
+            console.error("Failed to refresh backend profile:", error);
+        }
+    }, [currentUser]);
+
+    useEffect(() => {
+        const auth = getFirebaseAuth();
+        const unsubscribe = onAuthStateChanged(auth, async (user) => {
+            console.log("Firebase Auth State Changed:", user?.email);
+            setCurrentUser(user);
+            if (user) {
+                const token = await user.getIdToken();
+                setIdToken(token);
+                // Fetch backend profile to get the role
+                const profile = await fetchBackendProfile(user.uid);
+                console.log("Backend Profile Loaded:", profile?.role);
+                setBackendProfile(profile);
+            } else {
+                setIdToken(null);
+                setBackendProfile(null);
+            }
+            setLoading(false);
+        });
+
+        return () => unsubscribe();
     }, []);
 
     const logout = useCallback(async () => {
-        // No-op in demo mode
+        setLoading(true);
+        await logoutUser();
+        setCurrentUser(null);
+        setBackendProfile(null);
+        setIdToken(null);
+        setLoading(false);
     }, []);
 
-    const authStatus: AuthStatus = "authenticated";
+    const authStatus: AuthStatus = loading
+        ? "loading"
+        : currentUser ? "authenticated" : "unauthenticated";
 
     const value = useMemo(() => ({
         currentUser,
