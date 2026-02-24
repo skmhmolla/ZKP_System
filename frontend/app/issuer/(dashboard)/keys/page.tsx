@@ -3,7 +3,7 @@
 import { useState } from "react";
 import {
     Key, ShieldCheck, RefreshCcw, Download, Copy,
-    Lock, ShieldAlert, History, Terminal, CheckCircle2,
+    Lock, ShieldAlert, History, Terminal, CheckCircle2, Loader2,
     AlertCircle, Fingerprint, Cpu, Hash, Globe,
     Database, Activity, Shield
 } from "lucide-react";
@@ -11,12 +11,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/use-toast";
-import { useDemoData } from "@/context/DemoContext";
 import { Progress } from "@/components/ui/progress";
 import { motion, AnimatePresence } from "framer-motion";
 
 export default function KeyManagementPage() {
-    const { addAuditLog } = useDemoData();
+    const addAuditLog = (action: string, actor: string, service: string, detail: string) => {
+        console.log(`Audit Log: ${action} - ${actor} - ${service} - ${detail}`);
+    };
     const { toast } = useToast();
     const [isRotating, setIsRotating] = useState(false);
     const [rotationProgress, setRotationProgress] = useState(0);

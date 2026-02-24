@@ -2,105 +2,76 @@ const API_BASE = ""; // Uses Next.js rewrites to proxy to backend
 
 export const api = {
     issuer: {
-        /**
-         * Initialize the issuer service.
-         */
-        init: async (issuerName: string) => {
-            const res = await fetch(`${API_BASE}/api/hospital/init`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    hospital_id: issuerName.toLowerCase().replace(/\s+/g, '_'),
-                    hospital_name: issuerName
-                }),
-            });
+        init: async () => {
+            const res = await fetch(`${API_BASE}/api/issuer/init`, { method: "POST" });
             if (!res.ok) throw new Error("Failed to init issuer");
             return await res.json();
         },
 
-        getPublicKey: async (issuerId = "demo_issuer"): Promise<string> => {
-            const res = await fetch(`${API_BASE}/api/hospital/${issuerId}/public-key`);
-            if (!res.ok) {
-                // Return a mock key if endpoint fails (for demo resilience)
-                return "mock_pk_12345";
-            }
+        getPublicKey: async (): Promise<string> => {
+            const res = await fetch(`${API_BASE}/api/issuer/init`, { method: "POST" }); // init also returns public key
+            if (!res.ok) return "mock_pk_12345";
             const data = await res.json();
             return data.public_key;
         },
 
-        /**
-         * Issue a new credential with the given attributes.
-         */
-        issueCredential: async (attributes: Record<string, string>): Promise<{ credential: { signature: string, issuerPublicKey: string, attributes: Record<string, string> } }> => {
-            const res = await fetch(`${API_BASE}/api/hospital/issue`, {
+        issueCredential: async (type: string, attributes: Record<string, any>): Promise<any> => {
+            const res = await fetch(`${API_BASE}/api/issuer/issue`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    hospital_id: "demo_issuer",
-                    credential_type: "demo_cred",
-                    attributes
+                    credential_type: type,
+                    attributes: attributes
                 }),
             });
-            if (!res.ok) throw new Error("Failed to issue credential (backend error)");
-            const data = await res.json();
+            if (!res.ok) throw Error("Failed to issue credential");
+            return await res.json();
+        },
 
-            return {
-                credential: {
-                    signature: data.signature,
-                    issuerPublicKey: data.issuer_public_key,
-                    attributes: data.attributes
-                }
-            };
+        getIssued: async (page = 1, search = "") => {
+            const res = await fetch(`${API_BASE}/api/issuer/issued?page=${page}&search=${search}`);
+            if (!res.ok) throw Error("Failed to fetch issued credentials");
+            return await res.json();
+        },
+
+        revoke: async (id: string, reason = "Revoked by issuer") => {
+            const res = await fetch(`${API_BASE}/api/issuer/issued/${id}`, {
+                method: "DELETE",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ reason })
+            });
+            return await res.json();
         },
 
         getStats: async () => {
-            return { totalIssued: 0, activeCredentials: 0 };
+            const res = await fetch(`${API_BASE}/api/issuer/stats`);
+            if (!res.ok) return { totalIssued: 0, activeCredentials: 0, activePercent: 0, typesSupported: 0 };
+            return await res.json();
         }
     },
 
     verifier: {
-        /**
-         * Create a new verification request.
-         */
-        createRequest: async (verifierId: string, predicate: string) => {
-            let predObj = {};
-            if (predicate.includes(">")) {
-                const parts = predicate.split(">");
-                predObj = {
-                    type: "COMPARISON",
-                    attribute: parts[0].trim(),
-                    operator: "GT",
-                    value: parts[1].trim()
-                };
-            } else {
-                predObj = { type: "COMPARISON", attribute: "age", operator: "GT", value: "18" };
-            }
-
-            const res = await fetch(`${API_BASE}/api/provider/request`, {
+        createRequest: async (predicateKey: string) => {
+            const res = await fetch(`${API_BASE}/api/verifier/request`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    provider_id: verifierId,
-                    provider_name: "Demo Verifier",
-                    provider_type: "verifier",
-                    predicate: predObj
+                    predicate_key: predicateKey,
+                    verifier_id: "privaseal-verifier-web",
+                    verifier_name: "PrivaSeal Web Verifier"
                 }),
             });
             if (!res.ok) throw new Error("Failed to create verification request");
             const data = await res.json();
-
             return {
-                requestId: data.request_id,
-                qrCode: data.qr_code_data,
-                predicate: data.predicate_human_readable
+                requestId: data.request.id,
+                qrCode: data.request.qrUri,
+                predicate: data.request.predicateLabel
             };
         },
 
-        /**
-         * Submit a proof for verification.
-         */
         submitProof: async (requestId: string, proof: any, revealed: any, issuerPublicKey: string) => {
-            const res = await fetch(`${API_BASE}/api/provider/verify`, {
+            const res = await fetch(`${API_BASE}/api/verifier/verify`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -114,8 +85,14 @@ export const api = {
             const data = await res.json();
             return {
                 verified: data.verified,
-                timestamp: data.timestamp
+                request: data.request
             };
+        },
+
+        getStats: async () => {
+            const res = await fetch(`${API_BASE}/api/verifier/stats`);
+            if (!res.ok) return { totalRequests: 0, verified: 0, failed: 0, pending: 0, successRate: 0 };
+            return await res.json();
         }
     }
 };

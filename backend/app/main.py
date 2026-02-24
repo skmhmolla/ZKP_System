@@ -29,7 +29,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+<<<<<<< HEAD
 # ── Universal PrivaSeal routes ──────────────────────────────────────────────
+=======
+# ── New PrivaSeal routes ──────────────────────────────────────────────────────
+>>>>>>> d8ec894ca521ac735fc4c0d68ac4e20e84ec694d
 app.include_router(issuer_router,    prefix="/api/issuer",    tags=["Issuer"])
 app.include_router(verifier_router,  prefix="/api/verifier",  tags=["Verifier"])
 app.include_router(privaseal_router, prefix="/api/privaseal", tags=["PrivaSeal"])

@@ -9,7 +9,19 @@ import {
     Calendar, Tag, ShieldCheck, Clock, FileText,
     ArrowRight
 } from "lucide-react";
-import { useDemoData, Credential } from "@/context/DemoContext";
+export interface Credential {
+    id: string;
+    type: string;
+    status: "Active" | "Revoked" | "Pending";
+    issuer: string;
+    description: string;
+    category: string;
+    holderId: string;
+    issuedDate: string;
+    expiryDate: string;
+    accessLevel: number;
+    attributes: Record<string, string | number>;
+}
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -25,7 +37,13 @@ import {
 import { useToast } from "@/components/ui/use-toast";
 
 export default function IssuedCredentialsPage() {
-    const { credentials, revokeCredential, bulkRevoke } = useDemoData();
+    const [credentials, setCredentials] = useState<Credential[]>([]);
+    const revokeCredential = (id: string) => {
+        setCredentials(prev => prev.map(c => c.id === id ? { ...c, status: "Revoked" } : c));
+    };
+    const bulkRevoke = (ids: string[]) => {
+        setCredentials(prev => prev.map(c => ids.includes(c.id) ? { ...c, status: "Revoked" } : c));
+    };
     const { toast } = useToast();
 
     // Filtering/Sorting State

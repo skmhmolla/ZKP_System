@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
     LayoutDashboard, PlusCircle, FileText, Activity,
     BarChart3, Key, Download, Settings, ShieldCheck,
@@ -23,7 +23,13 @@ const menuItems = [
 
 export function IssuerSidebar() {
     const pathname = usePathname();
+    const router = useRouter();
     const { logout, backendProfile } = useAuth();
+
+    const handleLogout = async () => {
+        await logout();
+        router.replace("/issuer/login");
+    };
 
     return (
         <aside className="w-72 h-screen fixed left-0 top-0 bg-slate-950 border-r border-white/5 flex flex-col z-50">
@@ -77,7 +83,7 @@ export function IssuerSidebar() {
                     </div>
                 </div>
                 <button
-                    onClick={logout}
+                    onClick={handleLogout}
                     className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 hover:text-red-400 hover:bg-red-500/5 transition-all text-sm font-bold border border-transparent hover:border-red-500/10"
                 >
                     <LogOut className="w-4 h-4" />

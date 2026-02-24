@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { api } from "@/services/api";
 import {
     Plus, ShieldCheck, Loader2, Save, X,
     Calendar, User, FileText, Lock, Tags,
@@ -9,7 +10,20 @@ import {
     Shield, Eye, EyeOff, Layout, Zap,
     Database, Send, Sparkles, Binary
 } from "lucide-react";
-import { useDemoData, Credential } from "@/context/DemoContext";
+export interface Credential {
+    id: string;
+    type: string;
+    status: "Active" | "Revoked" | "Pending";
+    issuer: string;
+    description: string;
+    category: string;
+    holderId: string;
+    issuedDate: string;
+    expiryDate: string;
+    accessLevel: string;
+    tags: string[];
+    attributes: Record<string, string | number>;
+}
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
@@ -31,7 +45,12 @@ interface Attribute {
 }
 
 export default function IssueCredentialPage() {
-    const { issueCredential, addAuditLog } = useDemoData();
+    const issueCredential = (data: any) => {
+        console.log("Issuing Credential:", data);
+    };
+    const addAuditLog = (action: string, actor: string, target: string, detail: string) => {
+        console.log(`Audit Log: ${action} - ${actor} - ${target} - ${detail}`);
+    };
     const { toast } = useToast();
 
     // Issuance State
@@ -74,10 +93,10 @@ export default function IssueCredentialPage() {
     const handleIssue = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        if (!holderId.startsWith("PS-")) {
+        if (!holderId.trim()) {
             toast({
                 title: "Invalid Holder ID",
-                description: "Holder ID must start with 'PS-' protocol prefix.",
+                description: "Holder ID is required.",
                 variant: "destructive"
             });
             return;
@@ -87,44 +106,45 @@ export default function IssueCredentialPage() {
         setIssuancePhase("signing");
         setSigningProgress(0);
 
-        // Phase 1: Cryptographic Signing (BBS+)
-        for (let i = 0; i <= 70; i += (Math.random() * 15)) {
-            setSigningProgress(Math.min(i, 70));
-            await new Promise(r => setTimeout(r, 200));
+        try {
+            // Phase 1: Cryptographic Signing (Progress Simulation)
+            for (let i = 0; i <= 60; i += 10) {
+                setSigningProgress(i);
+                await new Promise(r => setTimeout(r, 100));
+            }
+
+            // Prepare attributes as Record<string, any>
+            const attrMap: Record<string, any> = {};
+            attributes.forEach(attr => {
+                if (attr.name) attrMap[attr.name.toLowerCase().replace(/\s+/g, '_')] = attr.value;
+            });
+            attrMap["holder_id"] = holderId;
+
+            // Phase 2: Call Real API
+            setIssuancePhase("broadcasting");
+            const result = await api.issuer.issueCredential(credentialType.toLowerCase(), attrMap);
+
+            setSigningProgress(100);
+            if (result.credential) {
+                setGeneratedHash(result.credential.signature || "SIG_UNKNOWN");
+            }
+
+            setIssuancePhase("delivered");
+
+            toast({
+                title: "ZK-Credential Issued",
+                description: "Credential signed and delivered via PrivaSeal Protocol.",
+            });
+        } catch (err: any) {
+            console.error("Issuance failed:", err);
+            setIssuancePhase("idle");
+            setIsIssuing(false);
+            toast({
+                title: "Issuance Failed",
+                description: err.message || "A network error occurred.",
+                variant: "destructive"
+            });
         }
-
-        // Phase 2: Network Broadcasting
-        setIssuancePhase("broadcasting");
-        for (let i = 70; i <= 95; i += (Math.random() * 10)) {
-            setSigningProgress(Math.min(i, 95));
-            await new Promise(r => setTimeout(r, 300));
-        }
-
-        // Finalize
-        setSigningProgress(100);
-        const mockHash = "zk" + Math.random().toString(16).substring(2, 40).toUpperCase();
-        setGeneratedHash(mockHash);
-
-        // Context/Backend logic
-        issueCredential({
-            holderId,
-            type: credentialType,
-            category,
-            description: `BBS+ ZK-Credential containing ${attributes.length} signed attributes.`,
-            expiryDate,
-            accessLevel: "Tier 1",
-            tags: ["zkp", "bbs+", credentialType.toLowerCase()]
-        });
-
-        addAuditLog("CREDENTIAL_ISSUED", "Root_Issuer", holderId, `Attributes: ${attributes.map(a => a.name).join(", ")}`);
-
-        await new Promise(r => setTimeout(r, 800));
-        setIssuancePhase("delivered");
-
-        toast({
-            title: "ZK-Credential Issued",
-            description: "Credential signed and delivered to Holder's wallet.",
-        });
     };
 
     const resetForm = () => {

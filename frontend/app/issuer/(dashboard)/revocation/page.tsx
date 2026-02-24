@@ -7,7 +7,17 @@ import {
     Clock, MoreHorizontal, User, Tag,
     Calendar, CheckCircle2, XCircle, Info
 } from "lucide-react";
-import { useDemoData, Credential } from "@/context/DemoContext";
+export interface Credential {
+    id: string;
+    type: string;
+    status: "Active" | "Revoked" | "Pending";
+    issuer: string;
+    date: string;
+    holderId?: string;
+    expiryDate?: string;
+    accessLevel?: number;
+    attributes: Record<string, string | number>;
+}
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -21,7 +31,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 export default function RevocationManagerPage() {
-    const { credentials, revokeCredential } = useDemoData();
+    const [credentials, setCredentials] = useState<Credential[]>([]);
+    const revokeCredential = (id: string) => {
+        setCredentials(prev => prev.filter(c => c.id !== id));
+    };
     const { toast } = useToast();
 
     const [search, setSearch] = useState("");
@@ -31,8 +44,8 @@ export default function RevocationManagerPage() {
         return credentials.filter(c =>
             c.status === "Active" &&
             (c.id.toLowerCase().includes(search.toLowerCase()) ||
-                c.holderId.toLowerCase().includes(search.toLowerCase()) ||
-                c.type.toLowerCase().includes(search.toLowerCase()))
+                c.holderId?.toLowerCase().includes(search.toLowerCase()) ||
+                c.type?.toLowerCase().includes(search.toLowerCase()))
         );
     }, [credentials, search]);
 
