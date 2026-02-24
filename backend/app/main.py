@@ -29,27 +29,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Legacy MediGuard routes (backward compatibility) ─────────────────────────
-try:
-    from api.hospital.routes import router as hospital_router
-    from api.provider.routes import router as provider_router
-    from database.db import engine as db_engine, Base
-
-    @app.on_event("startup")
-    async def startup_db_client():
-        async with db_engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-
-    app.include_router(hospital_router, prefix="/api/hospital", tags=["Hospital (Issuer)"])
-    app.include_router(provider_router, prefix="/api/provider", tags=["Provider (Verifier)"])
-    logger.info("Legacy MediGuard routes loaded successfully")
-except ImportError as e:
-    logger.warning(f"Legacy routes not loaded: {e}")
-
-# ── New PrivaSeal routes ──────────────────────────────────────────────────────
+# ── Universal PrivaSeal routes ──────────────────────────────────────────────
 app.include_router(issuer_router,    prefix="/api/issuer",    tags=["Issuer"])
 app.include_router(verifier_router,  prefix="/api/verifier",  tags=["Verifier"])
 app.include_router(privaseal_router, prefix="/api/privaseal", tags=["PrivaSeal"])
+
 
 # ── Benchmark routes ──────────────────────────────────────────────────────────
 try:

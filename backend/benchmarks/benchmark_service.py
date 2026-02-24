@@ -1,5 +1,5 @@
 """
-MediGuard Benchmark Service
+PrivaSeal Benchmark Service
 Simulates realistic ZK-proof computation under concurrent load.
 Stores rolling 50-entry history, computes average + p95 latency.
 

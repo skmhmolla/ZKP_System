@@ -1,7 +1,7 @@
 {
-    "name": "MediGuard - Healthcare Privacy Protocol",
-    "short_name": "MediGuard",
-    "description": "Verify medical credentials with zero-knowledge proofs",
+    "name": "PrivaSeal - Universal Privacy Protocol",
+    "short_name": "PrivaSeal",
+    "description": "Verify attributes with zero-knowledge proofs",
     "start_url": "/",
     "display": "standalone",
     "background_color": "#ffffff",

@@ -21,17 +21,17 @@ export default function QRScanner() {
     const handleScan = useCallback((data: string) => {
         try {
             // Some scanners might return just the content, others might wrap it.
-            // We expect a URL starting with mediguard://
+            // We expect a URL starting with privaseal://
             let urlObj: URL;
             try {
                 urlObj = new URL(data);
             } catch {
                 // Not a valid URL
-                throw new Error("Not a valid MediGuard code");
+                throw new Error("Not a valid PrivaSeal code");
             }
 
-            if (urlObj.protocol !== "mediguard:") {
-                throw new Error("Invalid protocol. Must be mediguard://");
+            if (urlObj.protocol !== "privaseal:") {
+                throw new Error("Invalid protocol. Must be privaseal://");
             }
 
             if (urlObj.pathname.includes("credential") || urlObj.host === "credential") {
@@ -77,8 +77,9 @@ export default function QRScanner() {
 
                 router.push(`/wallet/prove?req=${reqId}`);
             } else {
-                throw new Error("Unknown MediGuard action");
+                throw new Error("Unknown PrivaSeal action");
             }
+
         } catch (e: unknown) {
             const message = e instanceof Error ? e.message : "Unknown error";
             toast({ title: "Invalid Code", description: message, variant: "destructive" });
@@ -129,7 +130,7 @@ export default function QRScanner() {
 
             <div className="flex flex-col gap-4 w-full px-8 mt-8">
                 <p className="text-white text-center text-sm">
-                    Point your camera at a MediGuard QR Code to import a credential or verify a request.
+                    Point your camera at a PrivaSeal QR Code to import a credential or verify a request.
                 </p>
 
                 <div className="relative">
