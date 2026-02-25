@@ -20,12 +20,13 @@ import logging
 logger = logging.getLogger("issuer")
 router = APIRouter()
 
-# ---------------------------------------------------------------------------
-# In-memory credential store (persists for the lifetime of the server process)
-# Replacing with a database is as simple as swapping this list for ORM calls.
-# ---------------------------------------------------------------------------
+from app.db import state
 
-_credential_store: List[Dict[str, Any]] = []
+# Use shared state
+_credential_store = state.credentials
+_pending_requests = state.requests
+_audit = state.log_audit
+_now = state.now_iso
 
 
 # ---------------------------------------------------------------------------
@@ -131,7 +132,7 @@ async def issue_credential(req: IssueCredentialRequest):
     """
     try:
         cred = _make_credential(req)
-        _credential_store.append(cred)          # ← push, never overwrite
+        _credential_store[cred['id']] = cred          # ← store in dict
         logger.info(f"Credential issued: {cred['id']} type={cred['type']}")
         return JSONResponse(content={
             "success":    True,
@@ -154,7 +155,7 @@ async def get_issued_credentials(
     Return all issued credentials, newest first.
     Supports optional search (by name) and type filter.
     """
-    results = list(reversed(_credential_store))
+    results = list(reversed(list(_credential_store.values())))
 
     # Filter by type
     if type_filter and type_filter != "all":
@@ -186,36 +187,85 @@ async def get_issued_credentials(
 @router.get("/issued/{credential_id}")
 async def get_single_credential(credential_id: str):
     """Fetch a single credential by its UUID."""
-    for cred in _credential_store:
-        if cred["id"] == credential_id:
-            return JSONResponse(content={"credential": cred})
+    cred = _credential_store.get(credential_id)
+    if cred:
+        return JSONResponse(content={"credential": cred})
     raise HTTPException(status_code=404, detail="Credential not found")
 
 
 @router.delete("/issued/{credential_id}")
 async def revoke_credential(credential_id: str, body: RevokeRequest = RevokeRequest()):
     """Revoke (soft-delete) a credential by setting its status to Revoked."""
-    for cred in _credential_store:
-        if cred["id"] == credential_id:
-            if cred["status"] == "Revoked":
-                raise HTTPException(status_code=409, detail="Already revoked")
-            cred["status"] = "Revoked"
-            cred["revokedAt"] = datetime.now(timezone.utc).isoformat()
-            cred["revokeReason"] = body.reason
-            logger.info(f"Credential revoked: {credential_id}")
-            return JSONResponse(content={"success": True, "credential": cred})
+    cred = _credential_store.get(credential_id)
+    if cred:
+        if cred["status"] == "Revoked":
+            raise HTTPException(status_code=409, detail="Already revoked")
+        cred["status"] = "Revoked"
+        cred["revokedAt"] = _now()
+        cred["revokeReason"] = body.reason
+        logger.info(f"Credential revoked: {credential_id}")
+        return JSONResponse(content={"success": True, "credential": cred})
     raise HTTPException(status_code=404, detail="Credential not found")
+
+
+@router.get("/pending-requests")
+async def get_pending_requests():
+    """Return all identity requests awaiting approval."""
+    reqs = [r for r in state.identity_requests.values() if r["status"] == "pending"]
+    return JSONResponse(content={"requests": reqs})
+
+
+@router.post("/approve/{request_id}")
+async def approve_identity_request(request_id: str):
+    """Approve a holder's identity request and potentially issue a credential."""
+    req = state.identity_requests.get(request_id)
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    req["status"] = "approved"
+    req["approved_at"] = state.now_iso()
+    
+    # Simulate auto-issuing a PrivaSeal ID/Credential upon approval
+    user = state.users.get(req["user_id"])
+    if user:
+        user["status"] = "verified"
+        _audit("IDENTITY_APPROVED", "issuer-admin", user["email"], f"Request: {request_id}")
+
+    return JSONResponse(content={"success": True, "message": "Identity request approved."})
+
+
+@router.post("/reject/{request_id}")
+async def reject_identity_request(request_id: str):
+    """Reject a holder's identity request."""
+    req = state.identity_requests.get(request_id)
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    req["status"] = "rejected"
+    req["rejected_at"] = state.now_iso()
+    
+    user = state.users.get(req["user_id"])
+    if user:
+        _audit("IDENTITY_REJECTED", "issuer-admin", user["email"], f"Request: {request_id}")
+
+    return JSONResponse(content={"success": True, "message": "Identity request rejected."})
 
 
 @router.get("/stats")
 async def get_issuer_stats():
     """Aggregate stats for the dashboard cards."""
-    total  = len(_credential_store)
-    active = sum(1 for c in _credential_store if c["status"] == "Active")
-    types  = len({c["type"] for c in _credential_store})
+    all_creds = list(_credential_store.values())
+    total  = len(all_creds)
+    active = sum(1 for c in all_creds if c["status"] == "Active")
+    types  = len({c["type"] for c in all_creds})
+    
+    # Add pending requests count to stats
+    pending_count = sum(1 for r in state.identity_requests.values() if r["status"] == "pending")
+    
     return JSONResponse(content={
         "totalIssued":       total,
         "activeCredentials": active,
         "activePercent":     round((active / total * 100) if total else 0, 1),
         "typesSupported":    max(types, 3),
+        "pendingRequests":   pending_count
     })

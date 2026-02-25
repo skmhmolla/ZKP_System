@@ -21,11 +21,12 @@ import logging
 logger = logging.getLogger("verifier")
 router = APIRouter()
 
-# ─────────────────────────────────────────────────────────────────────────────
-# In-memory store (survives requests within the server process)
-# ─────────────────────────────────────────────────────────────────────────────
+from app.db import state
 
-_request_store: List[Dict[str, Any]] = []
+# Use shared state
+_request_store = state.requests
+_audit = state.log_audit
+_now = state.now_iso
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Predicate definitions
@@ -146,7 +147,7 @@ async def create_verification_request(body: CreateRequestBody):
         "errorMsg":        None,
     }
 
-    _request_store.append(record)
+    _request_store[request_id] = record
     logger.info(f"Verification request created: {request_id} predicate={body.predicate_key}")
 
     return JSONResponse(content={"success": True, "request": record})
@@ -158,8 +159,7 @@ async def submit_and_verify_proof(body: SubmitProofBody):
     Accept a ZK proof from a wallet, run the verifier, and update the request status.
     Falls back to safe-mode simulation when the ZKP engine is unavailable.
     """
-    # Find the request
-    record = next((r for r in _request_store if r["id"] == body.request_id), None)
+    record = _request_store.get(body.request_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Verification request not found")
 
@@ -214,7 +214,7 @@ async def get_all_requests(
     predicate:   Optional[str] = None,
 ):
     """Return verification history newest-first, with optional status & predicate filters."""
-    results = list(reversed(_request_store))
+    results = list(reversed(list(_request_store.values())))
 
     if status and status != "all":
         results = [r for r in results if r["status"] == status]
@@ -237,7 +237,7 @@ async def get_all_requests(
 @router.get("/requests/{request_id}")
 async def get_single_request(request_id: str):
     """Poll the status of a single verification request."""
-    record = next((r for r in _request_store if r["id"] == request_id), None)
+    record = _request_store.get(request_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Request not found")
     return JSONResponse(content={"request": record})
@@ -245,10 +245,11 @@ async def get_single_request(request_id: str):
 
 @router.get("/stats")
 async def get_verifier_stats():
-    total    = len(_request_store)
-    verified = sum(1 for r in _request_store if r["status"] == "verified")
-    failed   = sum(1 for r in _request_store if r["status"] == "failed")
-    pending  = sum(1 for r in _request_store if r["status"] in ("waiting_proof", "verifying", "proof_received"))
+    all_reqs = list(_request_store.values())
+    total    = len(all_reqs)
+    verified = sum(1 for r in all_reqs if r["status"] == "verified")
+    failed   = sum(1 for r in all_reqs if r["status"] == "failed")
+    pending  = sum(1 for r in all_reqs if r["status"] in ("waiting_proof", "verifying", "proof_received"))
     return JSONResponse(content={
         "totalRequests":  total,
         "verified":       verified,

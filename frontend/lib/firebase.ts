@@ -3,6 +3,13 @@
  * ──────────────────────────────────────────────────────────────────────────────
  * Firebase initialisation — exported as lazy singletons so they are safe
  * in Next.js SSR environments (only materialise on the client).
+ *
+ * Exports:
+ *   auth            — Firebase Auth instance
+ *   googleProvider  — Google OAuth provider (pre-configured)
+ *   getFirebaseAuth()
+ *   getGoogleProvider()
+ *   getFirebaseApp()
  */
 import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
 import {
@@ -12,7 +19,10 @@ import {
     browserLocalPersistence,
     setPersistence,
 } from "firebase/auth";
+import { getFirestore, Firestore } from "firebase/firestore";
+import { getStorage, FirebaseStorage } from "firebase/storage";
 import { getAnalytics, Analytics, isSupported } from "firebase/analytics";
+
 
 // ── Config from environment variables ─────────────────────────────────────────
 const firebaseConfig = {
@@ -28,18 +38,47 @@ const firebaseConfig = {
 // ── Lazy singletons ────────────────────────────────────────────────────────────
 let _app: FirebaseApp | null = null;
 let _auth: Auth | null = null;
+let _db: Firestore | null = null;
+let _storage: FirebaseStorage | null = null;
 let _analytics: Analytics | null = null;
 let _googleProvider: GoogleAuthProvider | null = null;
 
-function getFirebaseApp(): FirebaseApp {
+export function getFirebaseApp(): FirebaseApp {
     if (!_app) {
         if (!firebaseConfig.apiKey) {
             console.warn("⚠️ Firebase API Key is missing. Check .env.local");
         }
         _app = getApps().length ? getApp() : initializeApp(firebaseConfig);
-        console.log("🔥 Firebase Initialized for Project:", firebaseConfig.projectId);
+        console.log("🔥 Firebase Initialized:", firebaseConfig.projectId);
     }
     return _app;
+}
+
+export function getFirebaseAuth(): Auth {
+    if (!_auth) {
+        _auth = getAuth(getFirebaseApp());
+        if (typeof window !== "undefined") {
+            // Persist session across page reloads
+            setPersistence(_auth, browserLocalPersistence).catch((err) => {
+                console.warn("Could not set auth persistence:", err);
+            });
+        }
+    }
+    return _auth;
+}
+
+export function getFirebaseFirestore(): Firestore {
+    if (!_db) {
+        _db = getFirestore(getFirebaseApp());
+    }
+    return _db;
+}
+
+export function getFirebaseStorage(): FirebaseStorage {
+    if (!_storage) {
+        _storage = getStorage(getFirebaseApp());
+    }
+    return _storage;
 }
 
 export async function getFirebaseAnalytics(): Promise<Analytics | null> {
@@ -52,16 +91,6 @@ export async function getFirebaseAnalytics(): Promise<Analytics | null> {
     return _analytics;
 }
 
-export function getFirebaseAuth(): Auth {
-    if (!_auth) {
-        _auth = getAuth(getFirebaseApp());
-        // Persist session across page refreshes
-        if (typeof window !== "undefined") {
-            setPersistence(_auth, browserLocalPersistence).catch(() => { });
-        }
-    }
-    return _auth;
-}
 
 export function getGoogleProvider(): GoogleAuthProvider {
     if (!_googleProvider) {
@@ -73,6 +102,22 @@ export function getGoogleProvider(): GoogleAuthProvider {
     return _googleProvider;
 }
 
-// Default named export for convenience
-export const firebaseApp = (): FirebaseApp => getFirebaseApp();
+// ── Convenience named exports (matches user's requested structure) ─────────────
+// These are NOT instantiated at module import time — they evaluate lazily.
+// Usage: import { auth, googleProvider } from "@/lib/firebase"
+// NOTE: Only use inside components/hooks (client-side), not in server components.
+
+/**
+ * @deprecated Prefer getFirebaseAuth() for SSR safety.
+ * For client components, this convenience export is fine.
+ */
+export const auth = typeof window !== "undefined" ? getFirebaseAuth() : (null as unknown as Auth);
+
+/**
+ * @deprecated Prefer getGoogleProvider() for SSR safety.
+ */
+export const googleProvider = typeof window !== "undefined"
+    ? getGoogleProvider()
+    : (null as unknown as GoogleAuthProvider);
+
 export default getFirebaseAuth;

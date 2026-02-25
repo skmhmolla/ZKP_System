@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ShieldCheck, LogIn, AlertCircle, ArrowLeft } from "lucide-react";
 import { loginWithGoogle, logoutUser } from "@/lib/auth";
-import { ADMIN_EMAILS } from "@/config/admin";
+import { ADMIN_EMAILS } from "../../../../config/admin";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 
@@ -17,7 +17,7 @@ export default function AdminLoginPage() {
 
     // STEP 3: BLOCK LOGIN PAGE IF ALREADY LOGGED IN
     useEffect(() => {
-        if (authStatus === "authenticated" && backendProfile?.role === "admin") {
+        if (authStatus === "authenticated" && (backendProfile?.role === "admin" || backendProfile?.role === "issuer_admin")) {
             router.replace("/issuer");
         }
     }, [authStatus, backendProfile, router]);
@@ -27,7 +27,7 @@ export default function AdminLoginPage() {
         setError(null);
 
         try {
-            const { user, error: authError } = await loginWithGoogle("admin");
+            const { user, error: authError } = await loginWithGoogle("issuer_admin");
 
             if (authError) {
                 setError(authError);
@@ -40,7 +40,7 @@ export default function AdminLoginPage() {
                 router.replace("/issuer");
             } else {
                 await logoutUser();
-                setError("You are not authorized as Issuer Admin");
+                setError("Unauthorized Issuer Access");
                 setLoading(false);
             }
         } catch (err) {
