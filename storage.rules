@@ -1,0 +1,32 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Helper: Is the user logged in?
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Helper: Does the user own this path?
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Wallet Documents (Uploads for verification)
+    match /walletDocuments/{userId}/{allPaths=**} {
+      // Owners can upload/read their own docs
+      allow read, write: if isOwner(userId);
+      
+      // Issuer admins can read documents for verification purposes
+      // Since we don't have custom claims easily accessible here without a complex setup,
+      // we usually rely on the app logic or a more complex rule if needed.
+      // For now, allow owners. Issuers often need read access too.
+      // allow read: if isIssuerAdmin(); // Requires custom claims or firestore lookup in storage which is limited.
+    }
+
+    // Default: Deny all
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

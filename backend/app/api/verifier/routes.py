@@ -28,7 +28,6 @@ router = APIRouter()
 # ─────────────────────────────────────────────────────────────────────────────
 # Database-backed store
 # ─────────────────────────────────────────────────────────────────────────────
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Predicate definitions
 # ─────────────────────────────────────────────────────────────────────────────
@@ -253,12 +252,21 @@ async def get_all_requests(
 
 
 @router.get("/requests/{request_id}")
-async def get_single_request(request_id: str):
+async def get_single_request(request_id: str, db: AsyncSession = Depends(get_db)):
     """Poll the status of a single verification request."""
-    record = next((r for r in _request_store if r["id"] == request_id), None)
-    if record is None:
+    result = await db.execute(select(VerifierRequest).where(VerifierRequest.id == request_id))
+    req = result.scalar_one_or_none()
+    if req is None:
         raise HTTPException(status_code=404, detail="Request not found")
-    return JSONResponse(content={"request": record})
+    
+    return JSONResponse(content={"request": {
+        "id": req.id,
+        "predicateKey": req.predicate_key,
+        "status": req.status,
+        "statusLabel": req.status_label,
+        "verifiedAt": req.verified_at.isoformat() if req.verified_at else None,
+        "revealedAttrs": req.revealed_attrs
+    }})
 
 
 @router.get("/stats")
@@ -274,7 +282,6 @@ async def get_verifier_stats(db: AsyncSession = Depends(get_db)):
     
     pending_res = await db.execute(select(func.count(VerifierRequest.id)).where(VerifierRequest.status.in_(["waiting_proof", "verifying", "proof_received"])))
     pending = pending_res.scalar() or 0
-    
     return JSONResponse(content={
         "totalRequests":  total,
         "verified":       verified,

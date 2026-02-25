@@ -1,5 +1,6 @@
 import type { Config } from "tailwindcss"
 
+
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const config = {
     darkMode: ["class"],

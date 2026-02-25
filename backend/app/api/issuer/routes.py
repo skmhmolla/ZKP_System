@@ -28,7 +28,6 @@ router = APIRouter()
 # Database-backed credential store
 # ---------------------------------------------------------------------------
 
-
 # ---------------------------------------------------------------------------
 # Request / Response models
 # ---------------------------------------------------------------------------
@@ -229,7 +228,6 @@ async def get_issued_credentials(
     })
 
 
-@router.get("/issued/{credential_id}")
 async def get_single_credential(credential_id: str, db: AsyncSession = Depends(get_db)):
     """Fetch a single credential from DB by its UUID."""
     result = await db.execute(select(Credential).where(Credential.id == credential_id))
@@ -282,6 +280,84 @@ async def revoke_credential(credential_id: str, db: AsyncSession = Depends(get_d
     return JSONResponse(content={"success": True, "credential": d})
 
 
+from app.models import User, VerificationRequest, AuditLog
+
+@router.get("/pending-requests")
+async def get_pending_requests(db: AsyncSession = Depends(get_db)):
+    """Return all identity requests awaiting approval."""
+    result = await db.execute(select(VerificationRequest).where(VerificationRequest.status == "pending"))
+    reqs = result.scalars().all()
+    data = []
+    for r in reqs:
+        data.append({
+            "id": r.id,
+            "user_id": r.user_id,
+            "user_name": r.user_name,
+            "status": r.status,
+            "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None
+        })
+    return JSONResponse(content={"requests": data})
+
+
+@router.post("/approve/{request_id}")
+async def approve_identity_request(request_id: str, db: AsyncSession = Depends(get_db)):
+    """Approve a holder's identity request and potentially issue a credential."""
+    result = await db.execute(select(VerificationRequest).where(VerificationRequest.id == request_id))
+    req = result.scalar_one_or_none()
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    req.status = "approved"
+    req.reviewed_at = datetime.now(timezone.utc)
+    
+    user_res = await db.execute(select(User).where(User.id == req.user_id))
+    user = user_res.scalar_one_or_none()
+    if user:
+        user.status = "verified"
+        # Logic for auto-issuing can go here or be handled in privaseal admin routes
+        # For now, just audit it
+        audit_entry = AuditLog(
+            id=str(uuid.uuid4()),
+            timestamp=datetime.now(timezone.utc),
+            action="IDENTITY_APPROVED",
+            actor="issuer-admin",
+            target=user.email,
+            detail=f"Request: {request_id}"
+        )
+        db.add(audit_entry)
+
+    await db.commit()
+    return JSONResponse(content={"success": True, "message": "Identity request approved."})
+
+
+@router.post("/reject/{request_id}")
+async def reject_identity_request(request_id: str, db: AsyncSession = Depends(get_db)):
+    """Reject a holder's identity request."""
+    result = await db.execute(select(VerificationRequest).where(VerificationRequest.id == request_id))
+    req = result.scalar_one_or_none()
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    req.status = "rejected"
+    req.reviewed_at = datetime.now(timezone.utc)
+    
+    user_res = await db.execute(select(User).where(User.id == req.user_id))
+    user = user_res.scalar_one_or_none()
+    if user:
+        audit_entry = AuditLog(
+            id=str(uuid.uuid4()),
+            timestamp=datetime.now(timezone.utc),
+            action="IDENTITY_REJECTED",
+            actor="issuer-admin",
+            target=user.email,
+            detail=f"Request: {request_id}"
+        )
+        db.add(audit_entry)
+
+    await db.commit()
+    return JSONResponse(content={"success": True, "message": "Identity request rejected."})
+
+
 @router.get("/stats")
 async def get_issuer_stats(db: AsyncSession = Depends(get_db)):
     """Aggregate stats from DB for the dashboard cards."""
@@ -294,9 +370,14 @@ async def get_issuer_stats(db: AsyncSession = Depends(get_db)):
     types_res = await db.execute(select(func.count(func.distinct(Credential.type))))
     types = types_res.scalar() or 0
     
+    # Add pending requests count to stats
+    pending_res = await db.execute(select(func.count(VerificationRequest.id)).where(VerificationRequest.status == "pending"))
+    pending_count = pending_res.scalar() or 0
+    
     return JSONResponse(content={
         "totalIssued":       total,
         "activeCredentials": active,
         "activePercent":     round((active / total * 100) if total else 0, 1),
         "typesSupported":    max(types, 3),
+        "pendingRequests":   pending_count
     })

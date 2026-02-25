@@ -1,13 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { ShieldCheck, UserCircle, Briefcase, ScanLine, BarChart3, Menu, X, Wallet, LogOut } from "lucide-react";
+import { ShieldCheck, UserCircle, Briefcase, ScanLine, BarChart3, Menu, X, Wallet, LogOut, Settings, LayoutDashboard } from "lucide-react";
 import { useState } from "react";
 import { usePathname } from "next/navigation";
-
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 
+/**
+ * Legacy Navbar (components/Navbar.tsx).
+ * 
+ * This is injected in some inner portal layouts.
+ * Portal links now point to landing pages (/issuer, /wallet, /verifier)
+ * rather than direct login URLs.
+ */
 export default function Navbar() {
     const [isOpen, setIsOpen] = useState(false);
     const pathname = usePathname();
@@ -19,28 +25,34 @@ export default function Navbar() {
         router.replace("/");
     };
 
-    let navItems = [
-        { name: "Benchmarks", href: "/benchmarks", icon: <BarChart3 className="w-4 h-4" /> },
-    ];
+    let navItems: { name: string; href: string; icon: React.ReactNode }[] = [];
 
-    if (backendProfile?.role === "admin") {
+    if (backendProfile?.role === "admin" || backendProfile?.role === "issuer_admin") {
         navItems = [
-            { name: "Issuer Portal", href: "/issuer", icon: <Briefcase className="w-4 h-4" /> },
-            ...navItems
+            { name: "Dashboard", href: "/issuer/dashboard", icon: <Briefcase className="w-4 h-4" /> },
+            { name: "Benchmarks", href: "/benchmarks", icon: <BarChart3 className="w-4 h-4" /> },
         ];
-    } else if (backendProfile?.role === "holder") {
+    } else if (backendProfile?.role === "holder_user" || backendProfile?.role === "holder") {
         navItems = [
-            { name: "Holder Wallet", href: "/wallet", icon: <Wallet className="w-4 h-4" /> },
-            ...navItems
+            { name: "My Wallet", href: "/wallet/dashboard", icon: <Wallet className="w-4 h-4" /> },
+            { name: "Benchmarks", href: "/benchmarks", icon: <BarChart3 className="w-4 h-4" /> },
         ];
     } else if (backendProfile?.role === "verifier") {
         navItems = [
-            { name: "Verifier Portal", href: "/verifier", icon: <ScanLine className="w-4 h-4" /> },
-            ...navItems
+            { name: "Verifier Dashboard", href: "/verifier/dashboard", icon: <ScanLine className="w-4 h-4" /> },
+            { name: "Benchmarks", href: "/benchmarks", icon: <BarChart3 className="w-4 h-4" /> },
+        ];
+    } else {
+        // Unauthenticated — go to portal landing pages, NOT login pages
+        navItems = [
+            { name: "Issuer Portal", href: "/issuer", icon: <Briefcase className="w-4 h-4" /> },
+            { name: "Holder Wallet", href: "/wallet", icon: <Wallet className="w-4 h-4" /> },
+            { name: "Verifier Access", href: "/verifier", icon: <ScanLine className="w-4 h-4" /> },
+            { name: "Benchmarks", href: "/benchmarks", icon: <BarChart3 className="w-4 h-4" /> },
         ];
     }
 
-    const isActive = (path: string) => pathname === path;
+    const isActive = (path: string) => pathname === path || pathname.startsWith(path + "/");
 
     return (
         <nav className="fixed top-0 left-0 right-0 z-50 bg-slate-950/80 backdrop-blur-xl border-b border-white/5">

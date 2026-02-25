@@ -2,15 +2,17 @@
 
 import Link from "next/link";
 import { useState, useEffect } from "react";
-import { Shield, Menu, X, User as UserIcon, LogOut, LayoutDashboard, Wallet as WalletIcon, ShieldCheck } from "lucide-react";
+import { Shield, Menu, X, User as UserIcon, LogOut, LayoutDashboard, Wallet as WalletIcon, ShieldCheck, Activity } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
+import { useRouter } from "next/navigation";
 
 export const Navbar = () => {
     const [isScrolled, setIsScrolled] = useState(false);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-    const { currentUser, backendProfile, logout, authStatus } = useAuth();
+    const { currentUser, backendProfile, role, logout, authStatus } = useAuth();
+    const router = useRouter();
 
     useEffect(() => {
         const handleScroll = () => {
@@ -20,37 +22,30 @@ export const Navbar = () => {
         return () => window.removeEventListener("scroll", handleScroll);
     }, []);
 
-    const getNavLinks = () => {
-        if (!currentUser || !backendProfile) {
-            return [
-                { name: "Issuer Portal", href: "/issuer/login" },
-                { name: "Holder Wallet", href: "/wallet/login" },
-                { name: "Verifier Portal", href: "/verifier/login" },
-                { name: "Benchmarks", href: "/benchmarks" },
-            ];
-        }
+    /**
+     * Smart portal navigation:
+     * - If logged in as the matching role → go to dashboard
+     * - Otherwise → go to portal landing page (which shows modal on button click)
+     */
+    const getPortalHref = (portal: "issuer" | "wallet" | "verifier" | "benchmarks") => {
+        if (portal === "benchmarks") return "/benchmarks";
+        if (!currentUser || !backendProfile) return `/${portal}`;
 
-        const role = backendProfile.role;
-        if (role === "admin") {
-            return [
-                { name: "Issuer Admin", href: "/issuer", icon: ShieldCheck },
-                { name: "Benchmarks", href: "/benchmarks" },
-            ];
-        } else if (role === "holder") {
-            return [
-                { name: "My Wallet", href: "/wallet", icon: WalletIcon },
-                { name: "Benchmarks", href: "/benchmarks" },
-            ];
-        } else if (role === "verifier") {
-            return [
-                { name: "Verifier Portal", href: "/verifier", icon: LayoutDashboard },
-                { name: "Benchmarks", href: "/benchmarks" },
-            ];
-        }
-        return [];
+        const r = role || backendProfile?.role || "";
+        if (portal === "wallet") return "/wallet"; // Always open static landing page
+        if (portal === "issuer" && ["issuer_admin", "admin", "issuer"].includes(r)) return "/issuer/dashboard";
+        if (portal === "verifier" && r === "verifier") return "/verifier/dashboard";
+
+        // Logged in but different role — go to landing page
+        return `/${portal}`;
     };
 
-    const navLinks = getNavLinks();
+    const navLinks = [
+        { name: "Issuer Portal", portal: "issuer" as const, icon: ShieldCheck },
+        { name: "Holder Wallet", portal: "wallet" as const, icon: WalletIcon },
+        { name: "Verifier Access", portal: "verifier" as const, icon: LayoutDashboard },
+        { name: "Benchmarks", portal: "benchmarks" as const, icon: Activity },
+    ];
 
     return (
         <nav
@@ -75,7 +70,7 @@ export const Navbar = () => {
                     {navLinks.map((link) => (
                         <Link
                             key={link.name}
-                            href={link.href}
+                            href={getPortalHref(link.portal)}
                             className="relative text-sm font-medium text-gray-300 hover:text-white transition-colors group flex items-center gap-2"
                         >
                             {link.icon && <link.icon size={16} className="text-blue-400" />}
@@ -92,11 +87,11 @@ export const Navbar = () => {
                     ) : currentUser ? (
                         <div className="flex items-center gap-4">
                             <div className="flex flex-col items-end">
-                                <span className="text-xs font-bold text-white leading-none capitalize">
-                                    {backendProfile?.name || "User"}
+                                <span className="text-xs font-bold text-white leading-none">
+                                    {currentUser?.displayName || backendProfile?.name || currentUser?.email?.split("@")[0] || "User"}
                                 </span>
                                 <span className="text-[10px] text-gray-500 font-medium uppercase tracking-widest mt-1">
-                                    {backendProfile?.role}
+                                    {role || backendProfile?.role}
                                 </span>
                             </div>
                             <div className="relative group/user">
@@ -108,6 +103,21 @@ export const Navbar = () => {
                                     )}
                                 </div>
                                 <div className="absolute top-full right-0 mt-3 w-48 py-2 bg-[#0A1120] border border-white/10 rounded-xl shadow-2xl opacity-0 invisible group-hover/user:opacity-100 group-hover/user:visible transition-all">
+                                    {/* Dashboard shortcut */}
+                                    {backendProfile?.role && (
+                                        <button
+                                            onClick={() => {
+                                                const r = role || backendProfile.role;
+                                                if (["issuer_admin", "admin", "issuer"].includes(r!)) router.push("/issuer/dashboard");
+                                                else if (["holder_user", "holder"].includes(r!)) router.push("/wallet/dashboard");
+                                                else if (r === "verifier") router.push("/verifier/dashboard");
+                                            }}
+                                            className="w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-white/5 hover:text-white flex items-center gap-3 transition-colors"
+                                        >
+                                            <LayoutDashboard size={16} />
+                                            Dashboard
+                                        </button>
+                                    )}
                                     <button
                                         onClick={() => logout()}
                                         className="w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-white/5 hover:text-red-400 flex items-center gap-3 transition-colors"
@@ -123,7 +133,7 @@ export const Navbar = () => {
                             asChild
                             className="rounded-full bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white border-none shadow-lg shadow-blue-500/25 px-8 hover:scale-105 transition-all"
                         >
-                            <Link href="/wallet/login">Get Started</Link>
+                            <Link href="/wallet">Get Started</Link>
                         </Button>
                     )}
                 </div>
@@ -150,7 +160,7 @@ export const Navbar = () => {
                             {navLinks.map((link) => (
                                 <Link
                                     key={link.name}
-                                    href={link.href}
+                                    href={getPortalHref(link.portal)}
                                     className="text-lg font-medium text-gray-300 hover:text-white flex items-center gap-3"
                                     onClick={() => setIsMobileMenuOpen(false)}
                                 >
@@ -171,7 +181,7 @@ export const Navbar = () => {
                                     asChild
                                     className="rounded-full bg-gradient-to-r from-blue-600 to-cyan-600 text-white w-full py-6 text-lg"
                                 >
-                                    <Link href="/wallet/login" onClick={() => setIsMobileMenuOpen(false)}>
+                                    <Link href="/wallet" onClick={() => setIsMobileMenuOpen(false)}>
                                         Get Started
                                     </Link>
                                 </Button>
