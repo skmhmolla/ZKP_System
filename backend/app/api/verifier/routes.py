@@ -8,7 +8,7 @@ GET  /api/verifier/requests/{id}    — poll status of one request
 GET  /api/verifier/stats            — aggregate dashboard stats
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
@@ -17,15 +17,17 @@ import uuid
 import random
 import hashlib
 import logging
+from sqlalchemy import select, func, desc
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.database import get_db
+from app.models import VerifierRequest
 
 logger = logging.getLogger("verifier")
 router = APIRouter()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# In-memory store (survives requests within the server process)
+# Database-backed store
 # ─────────────────────────────────────────────────────────────────────────────
-
-_request_store: List[Dict[str, Any]] = []
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Predicate definitions
@@ -106,16 +108,18 @@ def _simulate_verify(proof: Optional[str]) -> bool:
 # ─────────────────────────────────────────────────────────────────────────────
 
 @router.get("/")
-async def verifier_status():
+async def verifier_status(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(func.count(VerifierRequest.id)))
+    count = result.scalar() or 0
     return {
         "status":   "active",
         "type":     "verifier",
-        "requests": len(_request_store),
+        "requests": count,
     }
 
 
 @router.post("/request")
-async def create_verification_request(body: CreateRequestBody):
+async def create_verification_request(body: CreateRequestBody, db: AsyncSession = Depends(get_db)):
     """Create a new verification request and return its QR data."""
     pred = PREDICATES.get(body.predicate_key)
     if pred is None:
@@ -125,85 +129,82 @@ async def create_verification_request(body: CreateRequestBody):
     now = datetime.now(timezone.utc)
     expires_at = now + timedelta(minutes=10)
 
-    record: Dict[str, Any] = {
-        "id":              request_id,
-        "predicateKey":    body.predicate_key,
-        "predicateLabel":  pred["label"],
-        "predicateDesc":   pred["description"],
-        "predicateIcon":   pred["icon"],
-        "credentialType":  pred["credential_type"],
-        "verifierId":      body.verifier_id,
-        "verifierName":    body.verifier_name,
-        "verifierType":    body.verifier_type,
-        "status":          "waiting_proof",
-        "statusLabel":     "Waiting for proof",
-        "qrUri":           _make_qr_uri(request_id, body.predicate_key),
-        "createdAt":       now.isoformat(),
-        "expiresAt":       expires_at.isoformat(),
-        "verifiedAt":      None,
-        "proofHash":       None,
-        "revealedAttrs":   {},
-        "errorMsg":        None,
-    }
+    db_req = VerifierRequest(
+        id=request_id,
+        predicate_key=body.predicate_key,
+        predicate_label=pred["label"],
+        predicate_desc=pred["description"],
+        predicate_icon=pred["icon"],
+        credential_type=pred["credential_type"],
+        verifier_id=body.verifier_id or "privaseal-verifier-001",
+        verifier_name=body.verifier_name or "PrivaSeal Verifier",
+        verifier_type=body.verifier_type or "general",
+        status="waiting_proof",
+        status_label="Waiting for proof",
+        qr_uri=_make_qr_uri(request_id, body.predicate_key),
+        created_at=now,
+        expires_at=expires_at,
+    )
 
-    _request_store.append(record)
-    logger.info(f"Verification request created: {request_id} predicate={body.predicate_key}")
+    db.add(db_req)
+    await db.commit()
+    await db.refresh(db_req)
+    
+    logger.info(f"Verification request created into DB: {request_id} predicate={body.predicate_key}")
 
-    return JSONResponse(content={"success": True, "request": record})
+    return JSONResponse(content={"success": True, "request": {
+        "id": db_req.id,
+        "predicateKey": db_req.predicate_key,
+        "predicateLabel": db_req.predicate_label,
+        "status": db_req.status,
+        "qrUri": db_req.qr_uri,
+        "createdAt": db_req.created_at.isoformat(),
+        "expiresAt": db_req.expires_at.isoformat()
+    }})
 
 
 @router.post("/verify")
-async def submit_and_verify_proof(body: SubmitProofBody):
+async def submit_and_verify_proof(body: SubmitProofBody, db: AsyncSession = Depends(get_db)):
     """
     Accept a ZK proof from a wallet, run the verifier, and update the request status.
     Falls back to safe-mode simulation when the ZKP engine is unavailable.
     """
     # Find the request
-    record = next((r for r in _request_store if r["id"] == body.request_id), None)
-    if record is None:
+    result = await db.execute(select(VerifierRequest).where(VerifierRequest.id == body.request_id))
+    req = result.scalar_one_or_none()
+    if req is None:
         raise HTTPException(status_code=404, detail="Verification request not found")
 
-    if record["status"] == "verified":
-        return JSONResponse(content={"success": True, "already_verified": True, "request": record})
+    if req.status == "verified":
+        return JSONResponse(content={"success": True, "already_verified": True})
 
     # Mark as verifying
-    record["status"]      = "verifying"
-    record["statusLabel"] = "Verifying…"
+    req.status      = "verifying"
+    req.status_label = "Verifying…"
+    await db.commit()
 
     # Simulate / perform verification
     passed = _simulate_verify(body.proof)
-    now    = _now_iso()
+    now    = datetime.now(timezone.utc)
 
     if passed:
-        record["status"]      = "verified"
-        record["statusLabel"] = "Verified ✅"
-        record["verifiedAt"]  = now
-        record["proofHash"]   = hashlib.sha256(
+        req.status      = "verified"
+        req.status_label = "Verified ✅"
+        req.verified_at  = now
+        req.proof_hash   = hashlib.sha256(
             (body.proof or uuid.uuid4().hex).encode()
         ).hexdigest()[:16]
-        record["revealedAttrs"] = body.revealed_attributes or {}
+        req.revealed_attrs = body.revealed_attributes or {}
     else:
-        record["status"]      = "failed"
-        record["statusLabel"] = "Verification Failed ❌"
-        record["errorMsg"]    = "ZK proof did not satisfy the predicate"
-        record["verifiedAt"]  = now
+        req.status      = "failed"
+        req.status_label = "Verification Failed ❌"
+        req.error_msg    = "ZK proof did not satisfy the predicate"
+        req.verified_at  = now
 
-    logger.info(f"Proof verified: {body.request_id} → {record['status']}")
+    await db.commit()
+    logger.info(f"Proof verified in DB: {body.request_id} → {req.status}")
 
-    # Nudge the benchmark engine if available (non-blocking)
-    try:
-        import sys, os
-        _backend_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        if _backend_root not in sys.path:
-            sys.path.insert(0, _backend_root)
-        from benchmarks.benchmark_service import engine as bm_engine
-        # Fire-and-forget: don't block the response
-        import asyncio
-        asyncio.ensure_future(bm_engine.get_snapshot())
-    except Exception:
-        pass
-
-    return JSONResponse(content={"success": True, "verified": passed, "request": record})
+    return JSONResponse(content={"success": True, "verified": passed})
 
 
 @router.get("/requests")
@@ -212,18 +213,35 @@ async def get_all_requests(
     per_page:    int = 20,
     status:      Optional[str] = None,
     predicate:   Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
 ):
-    """Return verification history newest-first, with optional status & predicate filters."""
-    results = list(reversed(_request_store))
+    """Return verification history from DB newest-first, with optional status & predicate filters."""
+    query = select(VerifierRequest).order_by(desc(VerifierRequest.created_at))
 
     if status and status != "all":
-        results = [r for r in results if r["status"] == status]
+        query = query.where(VerifierRequest.status == status)
     if predicate and predicate != "all":
-        results = [r for r in results if r["predicateKey"] == predicate]
+        query = query.where(VerifierRequest.predicate_key == predicate)
 
-    total = len(results)
-    start = (page - 1) * per_page
-    page_data = results[start: start + per_page]
+    # Get total
+    total_res = await db.execute(select(func.count()).select_from(query.subquery()))
+    total = total_res.scalar() or 0
+
+    # Paginate
+    query = query.offset((page - 1) * per_page).limit(per_page)
+    result = await db.execute(query)
+    reqs = result.scalars().all()
+
+    page_data = []
+    for r in reqs:
+        page_data.append({
+            "id": r.id,
+            "predicateKey": r.predicate_key,
+            "predicateLabel": r.predicate_label,
+            "status": r.status,
+            "createdAt": r.created_at.isoformat() if r.created_at else None,
+            "verifiedAt": r.verified_at.isoformat() if r.verified_at else None,
+        })
 
     return JSONResponse(content={
         "data":        page_data,
@@ -244,11 +262,19 @@ async def get_single_request(request_id: str):
 
 
 @router.get("/stats")
-async def get_verifier_stats():
-    total    = len(_request_store)
-    verified = sum(1 for r in _request_store if r["status"] == "verified")
-    failed   = sum(1 for r in _request_store if r["status"] == "failed")
-    pending  = sum(1 for r in _request_store if r["status"] in ("waiting_proof", "verifying", "proof_received"))
+async def get_verifier_stats(db: AsyncSession = Depends(get_db)):
+    total_res = await db.execute(select(func.count(VerifierRequest.id)))
+    total = total_res.scalar() or 0
+    
+    verified_res = await db.execute(select(func.count(VerifierRequest.id)).where(VerifierRequest.status == "verified"))
+    verified = verified_res.scalar() or 0
+    
+    failed_res = await db.execute(select(func.count(VerifierRequest.id)).where(VerifierRequest.status == "failed"))
+    failed = failed_res.scalar() or 0
+    
+    pending_res = await db.execute(select(func.count(VerifierRequest.id)).where(VerifierRequest.status.in_(["waiting_proof", "verifying", "proof_received"])))
+    pending = pending_res.scalar() or 0
+    
     return JSONResponse(content={
         "totalRequests":  total,
         "verified":       verified,

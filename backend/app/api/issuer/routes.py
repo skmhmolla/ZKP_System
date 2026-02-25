@@ -7,7 +7,7 @@ DELETE /api/issuer/issued/{credential_id} — revoke a credential
 GET  /api/issuer/stats  — aggregate stats for the dashboard
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
@@ -16,16 +16,17 @@ import uuid
 import hashlib
 import json
 import logging
+from sqlalchemy import select, func, desc
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.database import get_db
+from app.models import Credential
 
 logger = logging.getLogger("issuer")
 router = APIRouter()
 
 # ---------------------------------------------------------------------------
-# In-memory credential store (persists for the lifetime of the server process)
-# Replacing with a database is as simple as swapping this list for ORM calls.
+# Database-backed credential store
 # ---------------------------------------------------------------------------
-
-_credential_store: List[Dict[str, Any]] = []
 
 
 # ---------------------------------------------------------------------------
@@ -110,11 +111,13 @@ def _make_credential(req: IssueCredentialRequest) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 @router.get("/")
-async def get_issuer_status():
+async def get_issuer_status(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(func.count(Credential.id)))
+    count = result.scalar() or 0
     return {
         "status":  "active",
         "type":    "issuer",
-        "issued":  len(_credential_store),
+        "issued":  count,
     }
 
 
@@ -124,21 +127,41 @@ async def init_issuer():
 
 
 @router.post("/issue")
-async def issue_credential(req: IssueCredentialRequest):
+async def issue_credential(req: IssueCredentialRequest, db: AsyncSession = Depends(get_db)):
     """
-    Issue a new credential and save it to the in-memory store.
+    Issue a new credential and save it to the database.
     Always returns HTTP 200 with the created credential.
     """
     try:
-        cred = _make_credential(req)
-        _credential_store.append(cred)          # ← push, never overwrite
-        logger.info(f"Credential issued: {cred['id']} type={cred['type']}")
+        cred_dict = _make_credential(req)
+        
+        # Convert dict to model
+        db_cred = Credential(
+            id=cred_dict["id"],
+            type=cred_dict["type"],
+            type_label=cred_dict["typeLabel"],
+            issuer_id=cred_dict["issuerId"],
+            name=cred_dict["name"],
+            dob=cred_dict["dob"],
+            attributes=req.attributes,
+            metadata_json={k: v for k, v in cred_dict.items() if k not in ["id", "type", "typeLabel", "issuerId", "name", "dob"]},
+            issued_at=datetime.fromisoformat(cred_dict["issuedAt"]),
+            status=cred_dict["status"],
+            attr_hash=cred_dict["attrHash"]
+        )
+        
+        db.add(db_cred)
+        await db.commit()
+        await db.refresh(db_cred)
+        
+        logger.info(f"Credential issued and saved: {db_cred.id} type={db_cred.type}")
         return JSONResponse(content={
             "success":    True,
-            "credential": cred,
-            "message":    f"{cred['typeLabel']} issued successfully.",
+            "credential": cred_dict,
+            "message":    f"{cred_dict['typeLabel']} issued successfully.",
         })
     except Exception as exc:
+        await db.rollback()
         logger.error(f"Issue failed: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -149,30 +172,53 @@ async def get_issued_credentials(
     per_page: int = 20,
     search:   Optional[str] = None,
     type_filter: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
 ):
     """
-    Return all issued credentials, newest first.
+    Return all issued credentials from DB, newest first.
     Supports optional search (by name) and type filter.
     """
-    results = list(reversed(_credential_store))
+    query = select(Credential).order_by(desc(Credential.issued_at))
 
     # Filter by type
     if type_filter and type_filter != "all":
-        results = [c for c in results if c["type"] == type_filter]
+        query = query.where(Credential.type == type_filter)
 
-    # Search by name (case-insensitive)
+    # Search by name or ID (case-insensitive)
     if search:
-        q = search.lower()
-        results = [
-            c for c in results
-            if q in c.get("name", "").lower()
-            or q in c.get("id", "").lower()
-        ]
+        q = f"%{search.lower()}%"
+        query = query.where(
+            (func.lower(Credential.name).like(q)) |
+            (func.lower(Credential.id).like(q))
+        )
 
-    total = len(results)
+    # Get total count for pagination
+    count_query = select(func.count()).select_from(query.subquery())
+    total_result = await db.execute(count_query)
+    total = total_result.scalar() or 0
+
     # Paginate
-    start = (page - 1) * per_page
-    page_data = results[start: start + per_page]
+    query = query.offset((page - 1) * per_page).limit(per_page)
+    result = await db.execute(query)
+    creds = result.scalars().all()
+
+    # Convert to dict format expected by frontend
+    page_data = []
+    for c in creds:
+        d = {
+            "id": c.id,
+            "type": c.type,
+            "typeLabel": c.type_label,
+            "issuerId": c.issuer_id,
+            "name": c.name,
+            "dob": c.dob,
+            "issuedAt": c.issued_at.isoformat() if c.issued_at else None,
+            "status": c.status,
+            "attrHash": c.attr_hash,
+        }
+        if c.metadata_json:
+            d.update(c.metadata_json)
+        page_data.append(d)
 
     return JSONResponse(content={
         "data":       page_data,
@@ -184,35 +230,70 @@ async def get_issued_credentials(
 
 
 @router.get("/issued/{credential_id}")
-async def get_single_credential(credential_id: str):
-    """Fetch a single credential by its UUID."""
-    for cred in _credential_store:
-        if cred["id"] == credential_id:
-            return JSONResponse(content={"credential": cred})
-    raise HTTPException(status_code=404, detail="Credential not found")
+async def get_single_credential(credential_id: str, db: AsyncSession = Depends(get_db)):
+    """Fetch a single credential from DB by its UUID."""
+    result = await db.execute(select(Credential).where(Credential.id == credential_id))
+    c = result.scalar_one_or_none()
+    if not c:
+        raise HTTPException(status_code=404, detail="Credential not found")
+    
+    d = {
+        "id": c.id,
+        "type": c.type,
+        "typeLabel": c.type_label,
+        "issuerId": c.issuer_id,
+        "name": c.name,
+        "dob": c.dob,
+        "issuedAt": c.issued_at.isoformat() if c.issued_at else None,
+        "status": c.status,
+        "attrHash": c.attr_hash,
+    }
+    if c.metadata_json:
+        d.update(c.metadata_json)
+        
+    return JSONResponse(content={"credential": d})
 
 
 @router.delete("/issued/{credential_id}")
-async def revoke_credential(credential_id: str, body: RevokeRequest = RevokeRequest()):
-    """Revoke (soft-delete) a credential by setting its status to Revoked."""
-    for cred in _credential_store:
-        if cred["id"] == credential_id:
-            if cred["status"] == "Revoked":
-                raise HTTPException(status_code=409, detail="Already revoked")
-            cred["status"] = "Revoked"
-            cred["revokedAt"] = datetime.now(timezone.utc).isoformat()
-            cred["revokeReason"] = body.reason
-            logger.info(f"Credential revoked: {credential_id}")
-            return JSONResponse(content={"success": True, "credential": cred})
-    raise HTTPException(status_code=404, detail="Credential not found")
+async def revoke_credential(credential_id: str, db: AsyncSession = Depends(get_db), body: RevokeRequest = RevokeRequest()):
+    """Revoke (soft-delete) a credential in DB by setting its status to Revoked."""
+    result = await db.execute(select(Credential).where(Credential.id == credential_id))
+    c = result.scalar_one_or_none()
+    
+    if not c:
+        raise HTTPException(status_code=404, detail="Credential not found")
+    
+    if c.status == "Revoked":
+        raise HTTPException(status_code=409, detail="Already revoked")
+        
+    c.status = "Revoked"
+    c.revoked_at = datetime.now(timezone.utc)
+    c.revoke_reason = body.reason
+    
+    await db.commit()
+    logger.info(f"Credential revoked in DB: {credential_id}")
+    
+    d = {
+        "id": c.id,
+        "status": c.status,
+        "revokedAt": c.revoked_at.isoformat(),
+        "revokeReason": c.revoke_reason
+    }
+    return JSONResponse(content={"success": True, "credential": d})
 
 
 @router.get("/stats")
-async def get_issuer_stats():
-    """Aggregate stats for the dashboard cards."""
-    total  = len(_credential_store)
-    active = sum(1 for c in _credential_store if c["status"] == "Active")
-    types  = len({c["type"] for c in _credential_store})
+async def get_issuer_stats(db: AsyncSession = Depends(get_db)):
+    """Aggregate stats from DB for the dashboard cards."""
+    total_res = await db.execute(select(func.count(Credential.id)))
+    total = total_res.scalar() or 0
+    
+    active_res = await db.execute(select(func.count(Credential.id)).where(Credential.status == "Active"))
+    active = active_res.scalar() or 0
+    
+    types_res = await db.execute(select(func.count(func.distinct(Credential.type))))
+    types = types_res.scalar() or 0
+    
     return JSONResponse(content={
         "totalIssued":       total,
         "activeCredentials": active,

@@ -4,6 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.issuer.routes import router as issuer_router
 from app.api.verifier.routes import router as verifier_router
 from app.api.privaseal.routes import router as privaseal_router
+from app.database import engine, Base
+import asyncio
 
 # Use standard Python logging instead of structlog
 logging.basicConfig(
@@ -28,6 +30,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.on_event("startup")
+async def startup_event():
+    async with engine.begin() as conn:
+        # Create tables
+        await conn.run_sync(Base.metadata.create_all)
+    logger.info("Database tables created/verified.")
 
 <<<<<<< HEAD
 # ── Universal PrivaSeal routes ──────────────────────────────────────────────
