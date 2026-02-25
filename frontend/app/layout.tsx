@@ -48,7 +48,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${inter.variable} ${firaCode.variable} font-primary antialiased bg-gray-50 text-gray-900 min-h-screen`}
+        className={`${inter.variable} ${firaCode.variable} font-primary antialiased bg-slate-950 text-slate-100 min-h-screen`}
       >
         {/* AuthProvider wraps the entire app — Firebase session persists globally */}
         <AuthProvider>

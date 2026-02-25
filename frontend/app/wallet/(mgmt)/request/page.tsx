@@ -47,6 +47,8 @@ export default function IdentityRequestPage() {
         documentId: "",
     });
 
+    const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
     useEffect(() => {
         if (!backendProfile?.firebase_uid) return;
         const unsubscribe = holderService.subscribeToRequests(backendProfile.firebase_uid, setRequests);
@@ -55,6 +57,12 @@ export default function IdentityRequestPage() {
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setFormData({ ...formData, [e.target.id]: e.target.value });
+    };
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files[0]) {
+            setSelectedFile(e.target.files[0]);
+        }
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -67,7 +75,30 @@ export default function IdentityRequestPage() {
         setIsSubmitting(true);
         try {
             console.log("Transmitting identity request to ZKP Registry...");
-            const reqId = await holderService.submitRequest(backendProfile.firebase_uid, formData);
+
+            let documentUrls: string[] = [];
+            if (selectedFile) {
+                try {
+                    console.log("Uploading verification document...");
+                    const url = await holderService.uploadFile(backendProfile.firebase_uid, selectedFile, formData.idType);
+                    documentUrls.push(url);
+                } catch (storageErr: any) {
+                    console.error("Firebase Storage Upload Failed:", storageErr);
+                    // Specific handling for retry-limit-exceeded (timeout/misconfig)
+                    const isTimeout = storageErr.code === 'storage/retry-limit-exceeded';
+
+                    toast({
+                        title: isTimeout ? "Storage Connection Timeout" : "Document Upload Failed",
+                        description: isTimeout
+                            ? "Could not reach Firebase Storage. This often happens if the 'storageBucket' in .env.local is incorrect or Storage is not enabled in Firebase Console. Proceeding without document..."
+                            : "Your document could not be uploaded, but we are proceeding with your text-only request.",
+                        variant: "destructive"
+                    });
+                    // We continue without adding the URL
+                }
+            }
+
+            const reqId = await holderService.submitRequest(backendProfile.firebase_uid, formData, documentUrls);
             console.log("Success! Request ID:", reqId);
 
             setSubmittedRequestId(reqId);
@@ -78,6 +109,7 @@ export default function IdentityRequestPage() {
                 email: "", address: "", idType: "Passport",
                 documentId: ""
             });
+            setSelectedFile(null);
 
             setTimeout(() => {
                 router.push("/wallet/dashboard");
@@ -120,7 +152,7 @@ export default function IdentityRequestPage() {
                             </div>
                             <div>
                                 <CardTitle className="text-white text-2xl font-black uppercase italic">New Application</CardTitle>
-                                <CardDescription className="text-slate-500 font-bold uppercase text-[10px] tracking-widest">Global Identity Standard (GIS-1) • Text-Only Protocol</CardDescription>
+                                <CardDescription className="text-slate-500 font-bold uppercase text-[10px] tracking-widest">Global Identity Standard (GIS-1) • Physical Document Protocol</CardDescription>
                             </div>
                         </div>
                     </CardHeader>
@@ -158,16 +190,52 @@ export default function IdentityRequestPage() {
                                             <SelectValue placeholder="Select ID Type" />
                                         </SelectTrigger>
                                         <SelectContent className="bg-slate-900 border-white/10 text-white">
-                                            <SelectItem value="Aadhaar">Aadhaar</SelectItem>
-                                            <SelectItem value="Passport">Passport</SelectItem>
+                                            <SelectItem value="Aadhaar">Aadhaar (India)</SelectItem>
+                                            <SelectItem value="Passport">International Passport</SelectItem>
                                             <SelectItem value="Driving License">Driving License</SelectItem>
-                                            <SelectItem value="Student ID">Student ID</SelectItem>
+                                            <SelectItem value="Student ID">Educational ID</SelectItem>
                                         </SelectContent>
                                     </Select>
                                 </div>
                                 <div className="space-y-2">
                                     <Label htmlFor="documentId" className="text-[10px] uppercase font-black tracking-widest text-slate-400 ml-1">Document Serial ID</Label>
                                     <Input id="documentId" value={formData.documentId} onChange={handleChange} required className={inputClasses} placeholder="Enter ID number" />
+                                </div>
+                            </div>
+
+                            <div className="space-y-2 pt-4 border-t border-white/5">
+                                <Label htmlFor="file" className="text-[10px] uppercase font-black tracking-widest text-slate-400 ml-1">Upload Document Scan (PNG, JPG, PDF)</Label>
+                                <div className="relative group/file">
+                                    <Input
+                                        id="file"
+                                        type="file"
+                                        onChange={handleFileChange}
+                                        className="hidden"
+                                        accept="image/*,.pdf"
+                                    />
+                                    <label
+                                        htmlFor="file"
+                                        className={cn(
+                                            "flex flex-col items-center justify-center w-full h-32 px-4 border-2 border-dashed rounded-[2rem] cursor-pointer transition-all",
+                                            selectedFile
+                                                ? "border-emerald-500/50 bg-emerald-500/5"
+                                                : "border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/[0.07]"
+                                        )}
+                                    >
+                                        {selectedFile ? (
+                                            <div className="flex flex-col items-center gap-1">
+                                                <CheckCircle2 className="w-8 h-8 text-emerald-500" />
+                                                <span className="text-xs font-black text-white">{selectedFile.name}</span>
+                                                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">File ready for upload</span>
+                                            </div>
+                                        ) : (
+                                            <div className="flex flex-col items-center gap-1">
+                                                <FileText className="w-8 h-8 text-slate-500 group-hover/file:text-white transition-colors" />
+                                                <span className="text-xs font-black text-slate-400 group-hover/file:text-white transition-colors">Select Scan or Photo</span>
+                                                <span className="text-[9px] font-bold text-slate-600 uppercase tracking-[0.2em]">Max size 5MB</span>
+                                            </div>
+                                        )}
+                                    </label>
                                 </div>
                             </div>
 

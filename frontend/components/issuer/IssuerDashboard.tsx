@@ -299,6 +299,28 @@ export default function IssuerDashboard() {
                                         </div>
                                     </div>
                                     <div className="flex gap-4 items-center">
+                                        {req.documentUrls && req.documentUrls.length > 0 && (
+                                            <Dialog>
+                                                <DialogTrigger asChild>
+                                                    <Button variant="ghost" className="h-12 w-12 p-0 text-slate-400 hover:text-white rounded-xl">
+                                                        <Eye className="w-5 h-5" />
+                                                    </Button>
+                                                </DialogTrigger>
+                                                <DialogContent className="bg-slate-900 border-white/10 text-white max-w-4xl max-h-[90vh] overflow-y-auto">
+                                                    <DialogHeader>
+                                                        <DialogTitle className="text-xl font-black italic uppercase italic uppercase">Document Verification Preview</DialogTitle>
+                                                        <DialogDescription className="text-slate-400">Verifying {req.documentType} for {req.fullName}</DialogDescription>
+                                                    </DialogHeader>
+                                                    <div className="mt-6 aspect-video w-full bg-black/40 rounded-3xl overflow-hidden border border-white/5 flex items-center justify-center">
+                                                        {req.documentUrls[0].endsWith('.pdf') ? (
+                                                            <iframe src={req.documentUrls[0]} className="w-full h-full" />
+                                                        ) : (
+                                                            <img src={req.documentUrls[0]} alt="Document Scan" className="max-w-full max-h-full object-contain" />
+                                                        )}
+                                                    </div>
+                                                </DialogContent>
+                                            </Dialog>
+                                        )}
                                         <Button
                                             onClick={() => handleReject(req.id)}
                                             disabled={isProcessing === req.id}

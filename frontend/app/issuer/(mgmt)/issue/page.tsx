@@ -6,7 +6,7 @@ import { useAuth } from "@/context/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Users, Loader2, Fingerprint, Plus, Search, Filter } from "lucide-react";
+import { Users, Loader2, Fingerprint, Plus, Search, Filter, Eye } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
     Dialog,
@@ -259,6 +259,27 @@ export default function IssueCredentialPage() {
                                             </td>
                                             <td className="p-6 text-right">
                                                 <div className="flex justify-end gap-3">
+                                                    {req.documentUrls && req.documentUrls.length > 0 && (
+                                                        <Dialog>
+                                                            <DialogTrigger asChild>
+                                                                <Button variant="ghost" size="sm" className="text-slate-400 hover:text-white rounded-xl">
+                                                                    <Eye className="w-4 h-4" />
+                                                                </Button>
+                                                            </DialogTrigger>
+                                                            <DialogContent className="bg-slate-900 border-white/10 text-white max-w-4xl max-h-[90vh] overflow-y-auto">
+                                                                <DialogHeader>
+                                                                    <DialogTitle className="text-xl font-black italic uppercase italic uppercase">Document Verification Preview</DialogTitle>
+                                                                </DialogHeader>
+                                                                <div className="mt-6 aspect-video w-full bg-black/40 rounded-3xl overflow-hidden border border-white/5 flex items-center justify-center">
+                                                                    {req.documentUrls[0].endsWith('.pdf') ? (
+                                                                        <iframe src={req.documentUrls[0]} className="w-full h-full" />
+                                                                    ) : (
+                                                                        <img src={req.documentUrls[0]} alt="Document Scan" className="max-w-full max-h-full object-contain" />
+                                                                    )}
+                                                                </div>
+                                                            </DialogContent>
+                                                        </Dialog>
+                                                    )}
                                                     <Button
                                                         variant="ghost"
                                                         size="sm"

@@ -27,19 +27,21 @@ export const holderService = {
     },
 
     // 1️⃣ Identity Requests
-    submitRequest: async (uid: string, data: any) => {
+    submitRequest: async (uid: string, data: any, documentUrls: string[] = []) => {
         const requestId = "REQ-" + Date.now();
         await addDoc(collection(db, "verification_requests"), {
             requestId,
             uid,
             userUID: uid,
             name: data.fullName || data.name || "",
+            fullName: data.fullName || data.name || "",
             dob: data.dob || "",
             email: data.email || "",
             mobile: data.mobile || data.phone || "",
             address: data.address || "",
             documentType: data.idType || data.documentType || "",
             documentNumber: data.documentId || data.documentNumber || "",
+            documentUrls,
             status: "pending",
             createdAt: serverTimestamp(),
             timestamp: serverTimestamp()

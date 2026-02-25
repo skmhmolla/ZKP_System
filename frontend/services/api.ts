@@ -97,14 +97,14 @@ export const api = {
     },
 
     verifier: {
-        createRequest: async (predicateKey: string) => {
+        createRequest: async (predicateKey: string, verifierId: string, verifierName: string) => {
             const res = await fetch(`${API_BASE}/api/verifier/request`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     predicate_key: predicateKey,
-                    verifier_id: "privaseal-verifier-web",
-                    verifier_name: "PrivaSeal Web Verifier"
+                    verifier_id: verifierId,
+                    verifier_name: verifierName
                 }),
             });
             if (!res.ok) throw new Error("Failed to create verification request");
