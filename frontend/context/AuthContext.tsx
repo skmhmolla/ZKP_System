@@ -140,6 +140,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
         }, 6000);
 
+        if (!auth) {
+            clearTimeout(safetyTimer);
+            setLoading(false);
+            setAuthReady(true);
+            return () => { };
+        }
+
         const unsubAuth = onAuthStateChanged(auth, async (user) => {
             clearTimeout(safetyTimer);
 

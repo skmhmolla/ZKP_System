@@ -224,11 +224,23 @@ class FirebaseSyncBody(BaseModel):
 
 @router.post("/user/firebase-sync")
 async def firebase_sync(body: FirebaseSyncBody, db: AsyncSession = Depends(get_db)):
+    verified_uid = body.firebase_uid
+
     if not body.id_token:
         logger.warning(f"Sync event missing token for UID {body.firebase_uid}")
-    
-    verified_uid = body.firebase_uid 
-    
+    else:
+        try:
+            from firebase_admin import auth
+            decoded_token = auth.verify_id_token(body.id_token)
+            if decoded_token.get("uid") != body.firebase_uid:
+                logger.error(f"UID mismatch via Firebase token verification")
+                raise HTTPException(status_code=401, detail="Invalid token for this UID")
+            verified_uid = decoded_token.get("uid")
+        except Exception as e:
+            logger.error(f"Failed to verify Firebase token: {e}")
+            # If token is provided but verification fails, reject request for security
+            raise HTTPException(status_code=401, detail=f"Firebase authentication failed")
+
     # Existing linked user (check by firebase_uid)
     result = await db.execute(select(User).where(User.firebase_uid == verified_uid))
     user = result.scalar_one_or_none()

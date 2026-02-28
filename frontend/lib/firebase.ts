@@ -54,14 +54,23 @@ export function getFirebaseApp(): FirebaseApp {
     return _app;
 }
 
-export function getFirebaseAuth(): Auth {
+export function getFirebaseAuth(): Auth | null {
+    if (!firebaseConfig.apiKey) {
+        console.warn("⚠️ Firebase API Key is missing. Auth is disabled.");
+        return null;
+    }
     if (!_auth) {
-        _auth = getAuth(getFirebaseApp());
-        if (typeof window !== "undefined") {
-            // Persist session across page reloads
-            setPersistence(_auth, browserLocalPersistence).catch((err) => {
-                console.warn("Could not set auth persistence:", err);
-            });
+        try {
+            _auth = getAuth(getFirebaseApp());
+            if (typeof window !== "undefined") {
+                // Persist session across page reloads
+                setPersistence(_auth, browserLocalPersistence).catch((err) => {
+                    console.warn("Could not set auth persistence:", err);
+                });
+            }
+        } catch (error) {
+            console.error("Firebase Auth failed to initialize:", error);
+            return null;
         }
     }
     return _auth;
@@ -111,7 +120,7 @@ export function getGoogleProvider(): GoogleAuthProvider {
  * @deprecated Prefer getFirebaseAuth() for SSR safety.
  * For client components, this convenience export is fine.
  */
-export const auth = typeof window !== "undefined" ? getFirebaseAuth() : (null as unknown as Auth);
+export const auth = typeof window !== "undefined" ? getFirebaseAuth() : null;
 
 /**
  * @deprecated Prefer getGoogleProvider() for SSR safety.

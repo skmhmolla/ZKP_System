@@ -6,6 +6,7 @@ from app.api.verifier.routes import router as verifier_router
 from app.api.privaseal.routes import router as privaseal_router
 from app.database import engine, Base
 import asyncio
+from app.firebase_setup import init_firebase
 
 # Use standard Python logging instead of structlog
 logging.basicConfig(
@@ -37,6 +38,9 @@ async def startup_event():
         # Create tables
         await conn.run_sync(Base.metadata.create_all)
     logger.info("Database tables created/verified.")
+    
+    # Initialize Firebase Admin SDK
+    init_firebase()
 
 # ── PrivaSeal routes ──────────────────────────────────────────────────────────
 app.include_router(issuer_router,    prefix="/api/issuer",    tags=["Issuer"])
