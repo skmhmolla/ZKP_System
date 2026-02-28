@@ -7,10 +7,12 @@ import { SolutionSection } from "@/components/landing/SolutionSection";
 import { Applications } from "@/components/landing/Applications";
 import { CTA } from "@/components/landing/CTA";
 import { Footer } from "@/components/landing/Footer";
+import { IntroSplash } from "@/components/landing/IntroSplash";
 
 export default function Home() {
   return (
     <div className="premium-dark min-h-screen bg-background selection:bg-blue-500/30 selection:text-white">
+      <IntroSplash />
       {/* Dynamic Background elements that span across sections */}
       <div className="fixed inset-0 bg-noise pointer-events-none z-50" />
 
