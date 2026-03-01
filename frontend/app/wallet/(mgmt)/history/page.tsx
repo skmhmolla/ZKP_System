@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { holderService } from "@/lib/holder-service";
+import { api } from "@/services/api";
 import {
     History, Search, Filter,
     ArrowUpRight, Clock, ShieldCheck,
@@ -24,11 +24,17 @@ export default function HistoryPage() {
 
     useEffect(() => {
         if (!backendProfile?.firebase_uid) return;
-        const unsubscribe = holderService.subscribeToHistory(backendProfile.firebase_uid, (data) => {
-            setHistory(data);
-            setLoading(false);
-        });
-        return () => unsubscribe();
+        const fetchActivity = async () => {
+            try {
+                const res = await api.holder.getActivity(backendProfile.firebase_uid);
+                setHistory(res.data || []);
+            } catch (err) {
+                console.error("Failed to fetch activity:", err);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchActivity();
     }, [backendProfile]);
 
     const getIcon = (action: string) => {
@@ -42,7 +48,7 @@ export default function HistoryPage() {
     };
 
     const handleDownload = () => {
-        const content = history.map(h => `${h.timestamp?.toDate().toISOString() || 'N/A'} | ${h.action} | ${h.details}`).join('\n');
+        const content = history.map(h => `${new Date(h.timestamp).toISOString()} | ${h.action} | ${h.message || h.details}`).join('\n');
         const blob = new Blob([content], { type: 'text/plain' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -126,7 +132,7 @@ export default function HistoryPage() {
                                     filteredHistory.map((item) => (
                                         <tr key={item.id} className="hover:bg-white/[0.01] transition-colors group">
                                             <td className="px-8 py-5 text-[11px] font-medium text-slate-400 whitespace-nowrap">
-                                                {item.timestamp ? new Date(item.timestamp.toDate()).toLocaleString() : "Syncing..."}
+                                                {item.timestamp ? new Date(item.timestamp).toLocaleString() : "Syncing..."}
                                             </td>
                                             <td className="px-8 py-5">
                                                 <div className="flex items-center gap-3">
@@ -137,7 +143,7 @@ export default function HistoryPage() {
                                                 </div>
                                             </td>
                                             <td className="px-8 py-5">
-                                                <p className="text-xs text-slate-300 font-medium max-w-md">{item.details}</p>
+                                                <p className="text-xs text-slate-300 font-medium max-w-md">{item.message || item.details}</p>
                                             </td>
                                             <td className="px-8 py-5 text-right">
                                                 <div className="flex items-center justify-end gap-2 text-emerald-500/40 opacity-0 group-hover:opacity-100 transition-all">

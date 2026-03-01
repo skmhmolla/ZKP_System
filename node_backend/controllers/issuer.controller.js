@@ -108,3 +108,23 @@ exports.getAuditLogs = (req, res) => {
         res.status(200).json({ success: true, data: rows });
     });
 };
+
+exports.getApprovedVerifiers = (req, res) => {
+    db.all("SELECT id, firebaseUID, email, createdAt, approved FROM users WHERE role = 'verifier' AND approved = 1", (err, rows) => {
+        if (err) return res.status(500).json({ success: false, error: 'DB Error' });
+        res.status(200).json({ success: true, data: rows });
+    });
+};
+
+exports.deleteVerifier = (req, res) => {
+    const { firebaseUID } = req.params;
+    db.run("DELETE FROM users WHERE firebaseUID = ? AND role = 'verifier'", [firebaseUID], function (err) {
+        if (err) return res.status(500).json({ success: false, error: 'DB Error' });
+
+        db.run("INSERT INTO audit_logs (action, targetId, message) VALUES (?, ?, ?)",
+            ['VERIFIER_DELETED', firebaseUID, `Deleted/Revoked verifier ${firebaseUID}`]
+        );
+
+        res.status(200).json({ success: true, message: 'Verifier deleted' });
+    });
+};

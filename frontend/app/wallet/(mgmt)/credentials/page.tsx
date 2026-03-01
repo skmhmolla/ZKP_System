@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { holderService } from "@/lib/holder-service";
 import {
     Fingerprint, BadgeCheck, ShieldCheck,
     ArrowUpRight, Info, Eye, Download,
@@ -13,11 +12,12 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { motion } from "framer-motion";
 import Link from "next/link";
+import { api } from "@/services/api";
 import {
     Dialog, DialogContent, DialogHeader,
     DialogTitle, DialogDescription, DialogTrigger
 } from "@/components/ui/dialog";
-import { QRCodeCanvas } from "qrcode.react";
+import { QRCodeSVG } from "qrcode.react";
 import { QrCode } from "lucide-react";
 
 export default function CredentialsPage() {
@@ -27,11 +27,17 @@ export default function CredentialsPage() {
 
     useEffect(() => {
         if (!backendProfile?.firebase_uid) return;
-        const unsubscribe = holderService.subscribeToCredentials(backendProfile.firebase_uid, (creds) => {
-            setCredentials(creds);
-            setLoading(false);
-        });
-        return () => unsubscribe();
+        const fetchCreds = async () => {
+            try {
+                const res = await api.holder.getCredentials(backendProfile.firebase_uid);
+                setCredentials(res.data || []);
+            } catch (err) {
+                console.error("Failed to fetch credentials:", err);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchCreds();
     }, [backendProfile]);
 
     return (
@@ -77,7 +83,7 @@ export default function CredentialsPage() {
                 ) : (
                     credentials.map((cred, idx) => (
                         <motion.div
-                            key={cred.id}
+                            key={cred.credentialId}
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: idx * 0.1 }}
@@ -96,7 +102,7 @@ export default function CredentialsPage() {
 
                                 <div className="space-y-6 flex-1">
                                     <div>
-                                        <h4 className="text-white text-2xl font-black tracking-tighter italic uppercase leading-none">{cred.credentialType}</h4>
+                                        <h4 className="text-white text-2xl font-black tracking-tighter italic uppercase leading-none">Identity Passport</h4>
                                         <p className="text-slate-500 text-[10px] font-black uppercase tracking-[0.2em] mt-2 flex items-center gap-2">
                                             <Globe className="w-3 h-3" /> PrivaSeal Authority
                                         </p>
@@ -105,7 +111,7 @@ export default function CredentialsPage() {
                                     <div className="grid grid-cols-2 gap-4 pt-6 border-t border-white/5">
                                         <div>
                                             <p className="text-[8px] font-black text-slate-600 uppercase tracking-widest mb-1">Issue Date</p>
-                                            <p className="text-white font-bold text-xs uppercase">{new Date(cred.issuedAt?.toDate()).toLocaleDateString()}</p>
+                                            <p className="text-white font-bold text-xs uppercase">{new Date(cred.issuedAt).toLocaleDateString()}</p>
                                         </div>
                                         <div>
                                             <p className="text-[8px] font-black text-slate-600 uppercase tracking-widest mb-1">Status</p>
@@ -131,15 +137,15 @@ export default function CredentialsPage() {
                                                 </DialogDescription>
                                             </DialogHeader>
                                             <div className="mt-8 p-6 bg-white rounded-[2rem] shadow-2xl shadow-emerald-500/10">
-                                                <QRCodeCanvas
-                                                    value={`privaseal:credential:${cred.id}`}
+                                                <QRCodeSVG
+                                                    value={cred.qrData}
                                                     size={220}
-                                                    level="H"
-                                                    includeMargin={false}
+                                                    level="M"
+                                                    includeMargin={true}
                                                 />
                                             </div>
                                             <p className="mt-8 text-[10px] text-slate-500 font-mono font-bold tracking-tighter truncate w-full text-center px-4">
-                                                ID: {cred.id}
+                                                ID: {cred.credentialId}
                                             </p>
                                         </DialogContent>
                                     </Dialog>

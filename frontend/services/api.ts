@@ -66,6 +66,18 @@ export const api = {
             if (!res.ok) throw Error("Verifier approval failed");
             return await res.json();
         },
+        getApprovedVerifiers: async (uid: string) => {
+            const res = await fetch(`${API_BASE}/api/issuer/verifiers/list`, { headers: getHeaders(uid) });
+            if (!res.ok) throw new Error("Failed to fetch verifiers");
+            return await res.json();
+        },
+        deleteVerifier: async (uid: string, verifierUid: string) => {
+            const res = await fetch(`${API_BASE}/api/issuer/verifiers/delete/${verifierUid}`, {
+                method: "DELETE", headers: getHeaders(uid)
+            });
+            if (!res.ok) throw Error("Verifier deletion failed");
+            return await res.json();
+        },
         getAuditLogs: async (uid: string) => {
             const res = await fetch(`${API_BASE}/api/issuer/audit`, { headers: getHeaders(uid) });
             if (!res.ok) throw new Error("Failed to fetch audit logs");
@@ -92,6 +104,16 @@ export const api = {
         getDashboardInfo: async (uid: string) => {
             const res = await fetch(`${API_BASE}/api/wallet/dashboard`, { headers: getHeaders(uid) });
             if (!res.ok) throw new Error("Failed to fetch dashboard info");
+            return await res.json();
+        },
+        getCredentials: async (uid: string) => {
+            const res = await fetch(`${API_BASE}/api/wallet/list`, { headers: getHeaders(uid) });
+            if (!res.ok) throw new Error("Failed to fetch credentials list");
+            return await res.json();
+        },
+        getActivity: async (uid: string) => {
+            const res = await fetch(`${API_BASE}/api/wallet/activity`, { headers: getHeaders(uid) });
+            if (!res.ok) throw new Error("Failed to fetch activity logs");
             return await res.json();
         }
     },

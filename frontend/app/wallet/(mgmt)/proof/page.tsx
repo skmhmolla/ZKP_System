@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { holderService } from "@/lib/holder-service";
+import { api } from "@/services/api";
 import {
     Zap, ShieldCheck, Eye, EyeOff,
     Binary, RefreshCcw, Lock, Unlock,
@@ -33,8 +33,15 @@ export default function ProofGeneratorPage() {
 
     useEffect(() => {
         if (!backendProfile?.firebase_uid) return;
-        const unsubscribe = holderService.subscribeToCredentials(backendProfile.firebase_uid, setCredentials);
-        return () => unsubscribe();
+        const fetchCreds = async () => {
+            try {
+                const res = await api.holder.getCredentials(backendProfile.firebase_uid);
+                setCredentials(res.data || []);
+            } catch (err) {
+                console.error("Failed to fetch creds for proofs:", err);
+            }
+        };
+        fetchCreds();
     }, [backendProfile]);
 
     useEffect(() => {
@@ -75,14 +82,11 @@ export default function ProofGeneratorPage() {
         const entropy = "zkp_" + Math.random().toString(16).slice(2, 32);
         setProofEntropy(entropy);
 
-        // Save to backend history
+        // Local audit trail is handled by the backend during verification or specific actions
+        // For simulation, we just state is ready. 
+        // We can add an activity log call here.
         if (backendProfile?.firebase_uid) {
-            await holderService.saveProof(backendProfile.firebase_uid, {
-                purpose: "ZK-Attribute Verification",
-                credType: selectedCred.credentialType,
-                proofHash: entropy,
-                disclosedAttributes: Object.keys(disclosureOptions).filter(k => disclosureOptions[k])
-            });
+            // Optional: log that a proof was constructed
         }
 
         setProofStep("ready");
@@ -123,7 +127,7 @@ export default function ProofGeneratorPage() {
                     <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4">
                         {credentials.map((cred) => (
                             <button
-                                key={cred.id}
+                                key={cred.credentialId}
                                 onClick={() => handleSelectCred(cred)}
                                 className="text-left group bg-slate-900 border border-white/5 hover:border-emerald-500/20 rounded-[2.5rem] p-8 transition-all hover:bg-slate-800/40 relative overflow-hidden"
                             >
@@ -133,7 +137,7 @@ export default function ProofGeneratorPage() {
                                 <div className="w-12 h-12 bg-emerald-500/10 rounded-2xl flex items-center justify-center text-emerald-500 mb-6 group-hover:scale-110 transition-transform">
                                     <Binary className="w-6 h-6" />
                                 </div>
-                                <h3 className="text-white text-xl font-black uppercase italic italic">{cred.credentialType}</h3>
+                                <h3 className="text-white text-xl font-black uppercase italic italic">Identity Passport</h3>
                                 <p className="text-slate-500 text-[9px] font-black uppercase tracking-widest mt-1">Verify Attributes</p>
                                 <div className="mt-6 flex items-center gap-2 text-emerald-500 text-[10px] font-black uppercase opacity-0 group-hover:opacity-100 transition-opacity">
                                     Configure Proof <ArrowRight className="w-3 h-3" />

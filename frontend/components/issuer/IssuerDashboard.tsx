@@ -33,6 +33,7 @@ export function IssuerDashboard() {
 
     const [requests, setRequests] = useState<any[]>([]);
     const [verifiers, setVerifiers] = useState<any[]>([]);
+    const [approvedVerifiers, setApprovedVerifiers] = useState<any[]>([]);
     const [auditLogs, setAuditLogs] = useState<any[]>([]);
 
     const [selectedRequest, setSelectedRequest] = useState<any>(null);
@@ -42,15 +43,17 @@ export function IssuerDashboard() {
         if (!backendProfile?.firebase_uid) return;
         const uid = backendProfile.firebase_uid;
         try {
-            const [stRes, reqRes, verifRes, audRes] = await Promise.all([
+            const [stRes, reqRes, waitRes, appRes, audRes] = await Promise.all([
                 api.issuer.getStats(uid),
                 api.issuer.pendingRequests(uid),
                 api.issuer.getPendingVerifiers(uid),
+                api.issuer.getApprovedVerifiers(uid),
                 api.issuer.getAuditLogs(uid)
             ]);
             setStats(stRes.data);
             setRequests(reqRes.data);
-            setVerifiers(verifRes.data);
+            setVerifiers(waitRes.data);
+            setApprovedVerifiers(appRes.data);
             setAuditLogs(audRes.data);
         } catch (e) { console.error(e); }
     };
@@ -78,6 +81,14 @@ export function IssuerDashboard() {
         if (!backendProfile?.firebase_uid) return;
         await api.issuer.approveVerifier(backendProfile.firebase_uid, vid);
         loadData();
+    };
+
+    const handleDeleteVerifier = async (vid: string) => {
+        if (!backendProfile?.firebase_uid) return;
+        if (confirm("Are you sure you want to REVOKE this verifier? They will lost ALL access.")) {
+            await api.issuer.deleteVerifier(backendProfile.firebase_uid, vid);
+            loadData();
+        }
     };
 
     return (
@@ -203,10 +214,14 @@ export function IssuerDashboard() {
                 </TabsContent>
 
                 {/* Verifier Control */}
-                <TabsContent value="verifiers">
-                    <Card className="bg-slate-900 border-white/5 rounded-3xl overflow-hidden">
-                        <CardHeader className="border-b border-white/5 bg-white/[0.01]">
-                            <CardTitle className="text-sm font-black text-white uppercase tracking-widest">Pending Verifier Registrations</CardTitle>
+                <TabsContent value="verifiers" className="space-y-10">
+                    <Card className="bg-slate-900 border-white/5 rounded-3xl overflow-hidden shadow-2xl">
+                        <CardHeader className="border-b border-white/5 bg-amber-500/[0.02] flex flex-row items-center justify-between">
+                            <div>
+                                <CardTitle className="text-sm font-black text-white uppercase tracking-widest">Pending Verifier Registrations</CardTitle>
+                                <p className="text-[9px] text-amber-500 font-bold uppercase tracking-widest mt-1">Requires authority validation</p>
+                            </div>
+                            <Badge className="bg-amber-500/10 text-amber-500 border-none">{verifiers.length} New</Badge>
                         </CardHeader>
                         <CardContent className="p-0">
                             <table className="w-full text-left">
@@ -226,7 +241,43 @@ export function IssuerDashboard() {
                                             <td className="p-4 font-bold">{v.email}</td>
                                             <td className="p-4 text-slate-400">{new Date(v.createdAt).toLocaleString()}</td>
                                             <td className="p-4 text-right pr-6">
-                                                <Button className="bg-purple-500/10 text-purple-400 hover:bg-purple-500 hover:text-white h-8 text-[10px] uppercase font-black tracking-widest" onClick={() => handleApproveVerifier(v.firebaseUID)}>Approve</Button>
+                                                <Button className="bg-purple-500/10 text-purple-400 hover:bg-purple-500 hover:text-white h-8 text-[10px] uppercase font-black tracking-widest" onClick={() => handleApproveVerifier(v.firebaseUID)}>Approve Organization</Button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </CardContent>
+                    </Card>
+
+                    <Card className="bg-slate-900 border-white/5 rounded-3xl overflow-hidden shadow-2xl">
+                        <CardHeader className="border-b border-white/5 bg-emerald-500/[0.02] flex flex-row items-center justify-between">
+                            <div>
+                                <CardTitle className="text-sm font-black text-white uppercase tracking-widest">Authorized Verifiers</CardTitle>
+                                <p className="text-[9px] text-emerald-500 font-bold uppercase tracking-widest mt-1">Live active verification nodes</p>
+                            </div>
+                            <Badge className="bg-emerald-500/10 text-emerald-500 border-none">{approvedVerifiers.length} Active</Badge>
+                        </CardHeader>
+                        <CardContent className="p-0">
+                            <table className="w-full text-left">
+                                <thead>
+                                    <tr className="border-b border-white/5 bg-black/20 text-[10px] uppercase font-black tracking-widest text-slate-500">
+                                        <th className="p-4 pl-6">Node DID</th>
+                                        <th className="p-4">Email</th>
+                                        <th className="p-4">Authorization Date</th>
+                                        <th className="p-4 text-right pr-6">Control Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-white/5">
+                                    {approvedVerifiers.length === 0 && <tr><td colSpan={4} className="text-center p-12 text-slate-600 text-[10px] font-black uppercase tracking-[0.2em] italic">No active verifiers in network</td></tr>}
+                                    {approvedVerifiers.map(v => (
+                                        <tr key={v.firebaseUID} className="hover:bg-white/[0.02] text-sm text-slate-300 group">
+                                            <td className="p-4 pl-6 font-mono text-emerald-500/60 text-xs">did:privaseal:{v.firebaseUID.substring(0, 16)}</td>
+                                            <td className="p-4 font-bold">{v.email}</td>
+                                            <td className="p-4 text-slate-500 italic text-xs">{new Date(v.createdAt).toLocaleDateString()}</td>
+                                            <td className="p-4 text-right pr-6 space-x-2">
+                                                <Button variant="ghost" className="h-8 hover:bg-white/5 text-slate-500 hover:text-white text-[10px] font-black uppercase tracking-widest">Log View</Button>
+                                                <Button variant="outline" className="h-8 border-rose-500/20 text-rose-500/40 hover:bg-rose-500 hover:text-white hover:border-rose-500 text-[10px] font-black uppercase tracking-widest" onClick={() => handleDeleteVerifier(v.firebaseUID)}>Revoke</Button>
                                             </td>
                                         </tr>
                                     ))}
@@ -259,8 +310,8 @@ export function IssuerDashboard() {
                                             <td className="p-4 pl-6 text-slate-400 text-xs font-mono">{new Date(log.timestamp).toLocaleString()}</td>
                                             <td className="p-4">
                                                 <Badge variant="outline" className={`border-none text-[8px] uppercase font-black ${log.action.includes('APPROVED') ? 'bg-emerald-500/10 text-emerald-400' :
-                                                        log.action.includes('REJECTED') || log.action.includes('FAILED') ? 'bg-rose-500/10 text-rose-400' :
-                                                            'bg-slate-500/10 text-slate-400'
+                                                    log.action.includes('REJECTED') || log.action.includes('FAILED') ? 'bg-rose-500/10 text-rose-400' :
+                                                        'bg-slate-500/10 text-slate-400'
                                                     }`}>
                                                     {log.action}
                                                 </Badge>

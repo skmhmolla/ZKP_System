@@ -75,3 +75,20 @@ exports.getDashboardInfo = (req, res) => {
         });
     });
 };
+
+exports.getCredentials = (req, res) => {
+    const { firebaseUID } = req.user;
+    db.all('SELECT * FROM credentials WHERE firebaseUID = ? AND active = 1 ORDER BY issuedAt DESC', [firebaseUID], (err, rows) => {
+        if (err) return res.status(500).json({ success: false, error: 'Database error' });
+        res.status(200).json({ success: true, data: rows });
+    });
+};
+
+exports.getActivity = (req, res) => {
+    const { firebaseUID } = req.user;
+    // We can fetch from audit_logs where targetId matches the user's UID or their credentials
+    db.all('SELECT * FROM audit_logs WHERE message LIKE ? OR targetId = ? OR targetId IN (SELECT credentialId FROM credentials WHERE firebaseUID = ?) ORDER BY timestamp DESC LIMIT 50', [`%${firebaseUID}%`, firebaseUID, firebaseUID], (err, rows) => {
+        if (err) return res.status(500).json({ success: false, error: 'Database error' });
+        res.status(200).json({ success: true, data: rows });
+    });
+};

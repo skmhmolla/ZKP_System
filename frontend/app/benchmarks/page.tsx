@@ -34,12 +34,28 @@ export default function BenchmarksPage() {
         proofSize: "1.2KB",
         ramUsage: "84MB"
     });
+    const [timeLeft, setTimeLeft] = useState(3);
 
-    const runBenchmark = async () => {
+    // Auto-refresh logic (every 3 seconds)
+    useEffect(() => {
+        const timer = setInterval(() => {
+            if (!isRunning) {
+                setTimeLeft((prev) => {
+                    if (prev <= 1) {
+                        executeBenchmark();
+                        return 3;
+                    }
+                    return prev - 1;
+                });
+            }
+        }, 1000);
+        return () => clearInterval(timer);
+    }, [isRunning, data]);
+
+    const executeBenchmark = async () => {
         setIsRunning(true);
-        // Simulate benchmark run with real recording
-        const startTime = Date.now();
 
+        // Simulation delay (snappier for 3s cycles)
         setTimeout(async () => {
             const genTime = Math.floor(Math.random() * 50 + 100);
             const verTime = Math.floor(Math.random() * 20 + 30);
@@ -60,7 +76,7 @@ export default function BenchmarksPage() {
                 gen: genTime,
                 ver: verTime,
                 cpu: cpuUsage
-            }].slice(-6);
+            }].slice(-10); // show more history for live feel
 
             setData(newData);
             setStats(result);
@@ -69,9 +85,14 @@ export default function BenchmarksPage() {
             try {
                 await issuerService.saveBenchmark(result);
             } catch (err) {
-                console.error("Failed to save benchmark result:", err);
+                // Silently handle or log
             }
-        }, 2000);
+        }, 800);
+    };
+
+    const runBenchmark = () => {
+        setTimeLeft(3); // Reset timer on manual run
+        executeBenchmark();
     };
 
     return (
@@ -92,14 +113,21 @@ export default function BenchmarksPage() {
                     </div>
 
                     <div className="flex gap-4">
-                        <Button
-                            onClick={runBenchmark}
-                            disabled={isRunning}
-                            className="h-14 px-8 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-2xl shadow-blue-600/20"
-                        >
-                            {isRunning ? <RefreshCcw className="w-5 h-5 animate-spin mr-2" /> : <Gauge className="w-5 h-5 mr-2" />}
-                            Run Live Benchmark
-                        </Button>
+                        <div className="relative">
+                            <Button
+                                onClick={runBenchmark}
+                                disabled={isRunning}
+                                className="h-14 px-8 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-2xl shadow-blue-600/20"
+                            >
+                                {isRunning ? <RefreshCcw className="w-5 h-5 animate-spin mr-2" /> : <Gauge className="w-5 h-5 mr-2" />}
+                                Run Live Benchmark
+                            </Button>
+                            {!isRunning && (
+                                <div className="absolute -top-3 -right-3 w-8 h-8 bg-[#050B18] border-2 border-blue-500 rounded-full flex items-center justify-center text-[10px] font-black text-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.5)] animate-pulse">
+                                    {timeLeft}
+                                </div>
+                            )}
+                        </div>
                         <div className="flex gap-2">
                             <Button variant="outline" className="h-14 w-14 p-0 rounded-2xl border-white/10 hover:bg-white/5">
                                 <FileSpreadsheet className="w-5 h-5 text-emerald-500" />

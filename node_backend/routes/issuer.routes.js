@@ -8,7 +8,9 @@ const {
     rejectRequest,
     getPendingVerifiers,
     approveVerifier,
-    getAuditLogs
+    getAuditLogs,
+    getApprovedVerifiers,
+    deleteVerifier
 } = require('../controllers/issuer.controller');
 
 const router = express.Router();
@@ -22,7 +24,9 @@ router.get('/requests/pending/:id', getRequestDetails);
 router.post('/requests/approve/:id', approveRequest);
 router.post('/requests/reject/:id', rejectRequest);
 router.get('/verifiers/pending', getPendingVerifiers);
+router.get('/verifiers/list', getApprovedVerifiers);
 router.post('/verifiers/approve/:firebaseUID', approveVerifier);
+router.delete('/verifiers/delete/:firebaseUID', deleteVerifier);
 router.get('/audit', getAuditLogs);
 
 module.exports = router;
