@@ -10,7 +10,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { QRCodeCanvas } from "qrcode.react";
+import { QRCodeSVG } from "qrcode.react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 
@@ -18,6 +18,18 @@ export default function WalletDashboard() {
     const { backendProfile } = useAuth();
     const [dashboardData, setDashboardData] = useState<{ request: any, credential: any } | null>(null);
     const [loading, setLoading] = useState(true);
+
+    const handleDownloadQR = () => {
+        const canvas = document.getElementById("credential-qr") as HTMLCanvasElement;
+        if (!canvas) return;
+        const pngUrl = canvas.toDataURL("image/png");
+        const downloadLink = document.createElement("a");
+        downloadLink.href = pngUrl;
+        downloadLink.download = `PrivaSeal-QR-${dashboardData?.credential?.credentialId || 'ID'}.png`;
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        document.body.removeChild(downloadLink);
+    };
 
     useEffect(() => {
         if (!backendProfile?.firebase_uid) return;
@@ -135,11 +147,11 @@ export default function WalletDashboard() {
                             <CardTitle className="text-xl font-black text-white italic uppercase tracking-tight mt-4">Identity Passport</CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-6 flex flex-col items-center">
-                            <div className="bg-white p-4 rounded-xl shadow-lg border-4 border-slate-900 mt-4">
-                                <QRCodeCanvas value={credential.qrData} size={150} level="H" />
+                            <div className="bg-white p-8 rounded-3xl shadow-2xl border-4 border-slate-900 mt-4">
+                                <QRCodeSVG id="credential-qr" value={credential.qrData} size={300} level="L" includeMargin={true} />
                             </div>
                             <p className="text-[10px] font-black tracking-widest uppercase text-slate-500">Scan for Verification</p>
-                            <Button variant="outline" className="w-full bg-white/5 border-white/10 hover:bg-white/10 text-emerald-400 uppercase text-[10px] tracking-widest font-black rounded-xl h-12">
+                            <Button onClick={handleDownloadQR} variant="outline" className="w-full bg-white/5 border-white/10 hover:bg-white/10 text-emerald-400 uppercase text-[10px] tracking-widest font-black rounded-xl h-12">
                                 <Download className="w-4 h-4 mr-2" /> Download QR Code
                             </Button>
                         </CardContent>

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
+import { BrowserMultiFormatReader } from "@zxing/browser";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/services/api";
 import { Card } from "@/components/ui/card";
@@ -15,17 +16,59 @@ export default function VerifyPage() {
     const [credId, setCredId] = useState("");
     const [result, setResult] = useState<"VERIFIED" | "FAILED" | null>(null);
     const [failReason, setFailReason] = useState<string>("");
+    const [camError, setCamError] = useState<string>("");
     const [loading, setLoading] = useState(false);
+    const [isVerifying, setIsVerifying] = useState(false);
+
+    const videoRef = useRef<HTMLVideoElement>(null);
+    const isScanningRef = useRef(false);
+
+    useEffect(() => {
+        let controls: any = null;
+        const reader = new BrowserMultiFormatReader();
+
+        if (mode === "scan") {
+            setCamError("");
+            isScanningRef.current = true;
+
+            // Allow a tiny delay for the video element to mount completely
+            setTimeout(() => {
+                if (!videoRef.current) return;
+                reader.decodeFromVideoDevice(undefined, videoRef.current, (result, err, ctrl) => {
+                    controls = ctrl;
+                    if (result && isScanningRef.current) {
+                        // Prevent rapid re-scanning
+                        isScanningRef.current = false;
+                        handleVerify(result.getText());
+                    }
+                }).catch((err) => {
+                    console.error("Camera Access Error:", err);
+                    setCamError("Camera access denied or unavailable. This feature requires HTTPS or Localhost.");
+                });
+            }, 100);
+        }
+
+        return () => {
+            isScanningRef.current = false;
+            if (controls) {
+                try { controls.stop(); } catch (e) { }
+            }
+        };
+    }, [mode]);
 
     const handleVerify = async (idToVerify: string) => {
-        if (!backendProfile?.firebase_uid) return;
+        if (!backendProfile?.firebase_uid || !idToVerify) return;
         setLoading(true);
+        setIsVerifying(true);
         setResult(null);
 
         // QR data logic handling, if the payload is privaseal:cred:PS-CRED-1234:UID
-        let parsedId = idToVerify;
+        let parsedId = idToVerify.trim();
         if (parsedId.includes('privaseal:cred:')) {
-            parsedId = parsedId.split(':')[2]; // extract PS-CRED-XXXX
+            const parts = parsedId.split(':');
+            if (parts.length >= 3) {
+                parsedId = parts[2].trim(); // extract PS-CRED-XXXX
+            }
         }
 
         try {
@@ -37,6 +80,11 @@ export default function VerifyPage() {
             setFailReason(e.message || "Invalid or revoked credential.");
         } finally {
             setLoading(false);
+            setIsVerifying(false);
+            // Re-enable scanner if they want to scan another one immediately
+            setTimeout(() => {
+                isScanningRef.current = true;
+            }, 3000);
         }
     };
 
@@ -79,19 +127,47 @@ export default function VerifyPage() {
                         </Button>
                     </div>
                 ) : (
-                    <div className="py-20 flex flex-col items-center justify-center space-y-6 border-4 border-dashed border-white/5 rounded-3xl bg-black/20">
-                        <Scan className="w-16 h-16 text-emerald-500 animate-pulse" />
-                        <p className="text-slate-400 font-bold tracking-widest text-xs uppercase text-center max-w-xs leading-relaxed">
-                            Point camera at the Holder's QR code. (Camera integration requires HTTPS/local binding).
-                        </p>
-                        <Input
-                            placeholder="Scan/Paste QR Data Here..."
-                            className="bg-slate-950 border-white/10 text-white rounded-xl w-64 text-center font-mono opacity-50 focus:opacity-100"
-                            onChange={(e) => {
-                                if (e.target.value) handleVerify(e.target.value);
-                                e.target.value = '';
-                            }}
-                        />
+                    <div className="flex flex-col items-center justify-center space-y-6 border border-white/5 rounded-3xl bg-black/20 p-6 overflow-hidden relative min-h-[400px]">
+                        {camError ? (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center p-8 bg-rose-500/10 text-center space-y-4">
+                                <XCircle className="w-12 h-12 text-rose-500" />
+                                <p className="text-rose-400 font-bold uppercase tracking-widest text-xs leading-relaxed">{camError}</p>
+                            </div>
+                        ) : (
+                            <>
+                                <Scan className="absolute text-emerald-500/10 w-[300px] h-[300px] pointer-events-none" />
+                                <div className="w-full max-w-[300px] aspect-square rounded-[2rem] overflow-hidden border-2 border-emerald-500/50 relative shadow-[0_0_50px_rgba(16,185,129,0.1)]">
+                                    <video
+                                        ref={videoRef}
+                                        className="w-full h-full object-cover"
+                                        playsInline
+                                        muted
+                                    />
+                                    {isVerifying ? (
+                                        <div className="absolute inset-0 bg-emerald-500/20 backdrop-blur-md flex flex-col items-center justify-center space-y-4 animate-in fade-in duration-300">
+                                            <Loader2 className="w-12 h-12 text-white animate-spin" />
+                                            <p className="text-white font-black uppercase tracking-widest text-[10px]">Processing Proof...</p>
+                                        </div>
+                                    ) : (
+                                        <div className="absolute inset-0 border-4 border-emerald-500/20 rounded-[2rem] animate-pulse pointer-events-none" />
+                                    )}
+                                </div>
+                                <p className="text-slate-400 font-bold tracking-widest text-[10px] uppercase text-center max-w-xs leading-relaxed">
+                                    Point camera directly at the Holder's PrivaSeal QR code.
+                                </p>
+                            </>
+                        )}
+
+                        <div className="w-full pt-4 border-t border-white/5 relative z-10">
+                            <Input
+                                placeholder="Or Paste QR Payload here..."
+                                className="bg-slate-950 border-white/10 text-white rounded-xl w-full text-center font-mono text-xs opacity-50 focus:opacity-100"
+                                onChange={(e) => {
+                                    if (e.target.value) handleVerify(e.target.value);
+                                    e.target.value = '';
+                                }}
+                            />
+                        </div>
                     </div>
                 )}
             </Card>
