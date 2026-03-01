@@ -1,95 +1,110 @@
-const Request = require('../models/Request');
-const Credential = require('../models/Credential');
-const crypto = require('crypto');
+const db = require('../config/db');
+const uuid = require('uuid');
 
-// @desc    Get pending requests
-// @route   GET /api/issuer/pending-requests
-// @access  Private (Issuer)
-exports.getPendingRequests = async (req, res) => {
-    try {
-        const requests = await Request.find({ status: 'pending' }).sort('-createdAt');
-        res.status(200).json({ success: true, count: requests.length, data: requests });
-    } catch (err) {
-        res.status(400).json({ success: false, error: err.message });
-    }
-};
+// Dashboard summary stats
+exports.getDashboardStats = (req, res) => {
+    const stats = {
+        totalRequests: 0,
+        pendingApprovals: 0,
+        issuedCredentials: 0,
+        totalVerifiers: 0
+    };
 
-// @desc    Approve request
-// @route   POST /api/issuer/approve/:requestId
-// @access  Private (Issuer)
-exports.approveRequest = async (req, res) => {
-    try {
-        const request = await Request.findOne({ requestId: req.params.requestId });
-
-        if (!request) {
-            return res.status(404).json({ success: false, error: 'Request not found' });
-        }
-
-        if (request.status !== 'pending') {
-            return res.status(400).json({ success: false, error: 'Request already processed' });
-        }
-
-        // 1. Update Request
-        request.status = 'approved';
-        await request.save();
-
-        // 2. Generate Credential
-        const credentialId = `PS-CRED-${Date.now()}`;
-        const zkHash = crypto.createHash('sha256').update(JSON.stringify(request)).digest('hex');
-
-        const credential = await Credential.create({
-            holderId: request.userId,
-            credentialId,
-            zkHash: `zk_${zkHash.substring(0, 32)}`,
-            qrCodeData: JSON.stringify({
-                id: credentialId,
-                type: request.documentType,
-                issuer: "PrivaSeal Authority",
-                hash: zkHash
-            }),
-            metadata: {
-                name: request.fullName,
-                dob: request.dob,
-                email: request.email,
-                docType: request.documentType,
-                docNum: request.documentNumber
-            }
+    db.get("SELECT COUNT(*) as count FROM identity_requests", (err, row) => {
+        if (row) stats.totalRequests = row.count;
+        db.get("SELECT COUNT(*) as count FROM identity_requests WHERE status = 'pending'", (err, row) => {
+            if (row) stats.pendingApprovals = row.count;
+            db.get("SELECT COUNT(*) as count FROM credentials WHERE active = 1", (err, row) => {
+                if (row) stats.issuedCredentials = row.count;
+                db.get("SELECT COUNT(*) as count FROM users WHERE role = 'verifier'", (err, row) => {
+                    if (row) stats.totalVerifiers = row.count;
+                    res.status(200).json({ success: true, data: stats });
+                });
+            });
         });
-
-        res.status(200).json({ success: true, data: credential });
-    } catch (err) {
-        res.status(400).json({ success: false, error: err.message });
-    }
+    });
 };
 
-// @desc    Reject request
-// @route   POST /api/issuer/reject/:requestId
-// @access  Private (Issuer)
-exports.rejectRequest = async (req, res) => {
-    try {
-        const request = await Request.findOne({ requestId: req.params.requestId });
-
-        if (!request) {
-            return res.status(404).json({ success: false, error: 'Request not found' });
-        }
-
-        request.status = 'rejected';
-        await request.save();
-
-        res.status(200).json({ success: true, data: request });
-    } catch (err) {
-        res.status(400).json({ success: false, error: err.message });
-    }
+exports.getPendingRequests = (req, res) => {
+    db.all("SELECT * FROM identity_requests WHERE status = 'pending' ORDER BY createdAt ASC", (err, rows) => {
+        if (err) return res.status(500).json({ success: false, error: 'DB Error' });
+        res.status(200).json({ success: true, data: rows });
+    });
 };
 
-// @desc    Get issued credentials
-// @route   GET /api/issuer/issued-credentials
-// @access  Private (Issuer)
-exports.getIssuedCredentials = async (req, res) => {
-    try {
-        const credentials = await Credential.find().sort('-issuedAt');
-        res.status(200).json({ success: true, count: credentials.length, data: credentials });
-    } catch (err) {
-        res.status(400).json({ success: false, error: err.message });
-    }
+exports.getRequestDetails = (req, res) => {
+    const { id } = req.params;
+    db.get("SELECT * FROM identity_requests WHERE requestId = ?", [id], (err, row) => {
+        if (err || !row) return res.status(404).json({ success: false, error: 'Not found' });
+        res.status(200).json({ success: true, data: row });
+    });
+};
+
+exports.approveRequest = (req, res) => {
+    const { id } = req.params;
+    db.get("SELECT * FROM identity_requests WHERE requestId = ?", [id], (err, reqData) => {
+        if (err || !reqData) return res.status(404).json({ success: false, error: 'Not found' });
+        if (reqData.status !== 'pending') return res.status(400).json({ success: false, error: 'Request is not pending' });
+
+        const credIdNumber = Math.floor(100000 + Math.random() * 900000);
+        const credId = `PS-CRED-${credIdNumber}`;
+        const qrDataPayload = `privaseal:cred:${credId}:${reqData.firebaseUID}`; // unique logic
+
+        db.run("UPDATE identity_requests SET status = 'approved' WHERE requestId = ?", [id], function (err) {
+            if (err) return res.status(500).json({ success: false, error: 'Update failed' });
+
+            const query = `INSERT INTO credentials (credentialId, requestId, firebaseUID, qrData) VALUES (?, ?, ?, ?)`;
+            db.run(query, [credId, id, reqData.firebaseUID, qrDataPayload], function (err) {
+                if (err) return res.status(500).json({ success: false, error: 'Insert cred failed' });
+
+                // Track in audit log
+                db.run("INSERT INTO audit_logs (action, targetId, message) VALUES (?, ?, ?)",
+                    ['CREDENTIAL_APPROVED', credId, `Approved request ${id}`]
+                );
+
+                res.status(200).json({ success: true, data: { credentialId: credId } });
+            });
+        });
+    });
+};
+
+exports.rejectRequest = (req, res) => {
+    const { id } = req.params;
+    db.run("UPDATE identity_requests SET status = 'rejected' WHERE requestId = ?", [id], function (err) {
+        if (err) return res.status(500).json({ success: false, error: 'Update failed' });
+
+        db.run("INSERT INTO audit_logs (action, targetId, message) VALUES (?, ?, ?)",
+            ['REQUEST_REJECTED', id, `Rejected request ${id}`]
+        );
+
+        res.status(200).json({ success: true, message: 'Rejected' });
+    });
+};
+
+// Verifier Management
+exports.getPendingVerifiers = (req, res) => {
+    db.all("SELECT id, firebaseUID, email, createdAt FROM users WHERE role = 'verifier' AND approved = 0", (err, rows) => {
+        if (err) return res.status(500).json({ success: false, error: 'DB Error' });
+        res.status(200).json({ success: true, data: rows });
+    });
+};
+
+exports.approveVerifier = (req, res) => {
+    const { firebaseUID } = req.params;
+    db.run("UPDATE users SET approved = 1 WHERE firebaseUID = ? AND role = 'verifier'", [firebaseUID], function (err) {
+        if (err) return res.status(500).json({ success: false, error: 'DB Error' });
+
+        db.run("INSERT INTO audit_logs (action, targetId, message) VALUES (?, ?, ?)",
+            ['VERIFIER_APPROVED', firebaseUID, `Approved verifier ${firebaseUID}`]
+        );
+
+        res.status(200).json({ success: true, message: 'Verifier approved' });
+    });
+};
+
+exports.getAuditLogs = (req, res) => {
+    db.all("SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT 100", (err, rows) => {
+        if (err) return res.status(500).json({ success: false, error: 'DB Error' });
+        res.status(200).json({ success: true, data: rows });
+    });
 };

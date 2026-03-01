@@ -1,13 +1,13 @@
 const express = require('express');
-const { verifyCredential, getHistory } = require('../controllers/verifier.controller');
 const { protect, authorize } = require('../middleware/authMiddleware');
+const { getDashboardInfo, verifyCredential } = require('../controllers/verifier.controller');
 
 const router = express.Router();
 
 router.use(protect);
 router.use(authorize('verifier'));
 
-router.post('/verify-credential', verifyCredential);
-router.get('/history', getHistory);
+router.get('/dashboard', getDashboardInfo);
+router.post('/verify', verifyCredential);
 
 module.exports = router;

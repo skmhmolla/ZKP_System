@@ -1,143 +1,116 @@
-const API_BASE = ""; // Uses Next.js rewrites to proxy to backend
+const API_BASE = ""; // Uses Next.js rewrites to proxy to backend (now Node.js /api)
+
+// Helper for passing Firebase UID
+const getHeaders = (uid?: string) => {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (uid) headers["x-firebase-uid"] = uid;
+    return headers;
+};
 
 export const api = {
-    issuer: {
-        init: async () => {
-            const res = await fetch(`${API_BASE}/api/issuer/init`, { method: "POST" });
-            if (!res.ok) throw new Error("Failed to init issuer");
-            return await res.json();
-        },
-
-        getPublicKey: async (): Promise<string> => {
-            const res = await fetch(`${API_BASE}/api/issuer/init`, { method: "POST" });
-            if (!res.ok) return "mock_pk_12345";
-            const data = await res.json();
-            return data.public_key;
-        },
-
-        issueCredential: async (type: string, attributes: Record<string, any>): Promise<any> => {
-            const res = await fetch(`${API_BASE}/api/issuer/issue`, {
+    auth: {
+        syncSession: async (firebaseUID: string, email: string, role: string) => {
+            const res = await fetch(`${API_BASE}/api/auth/session`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    credential_type: type,
-                    attributes: attributes
-                }),
+                body: JSON.stringify({ firebaseUID, email, role })
             });
-            if (!res.ok) throw Error("Failed to issue credential");
+            if (!res.ok) throw new Error("Failed to sync session");
             return await res.json();
         },
-
-        getIssued: async (page = 1, search = "") => {
-            const res = await fetch(`${API_BASE}/api/issuer/issued?page=${page}&search=${search}`);
-            if (!res.ok) throw Error("Failed to fetch issued credentials");
+        getMe: async (firebaseUID: string) => {
+            const res = await fetch(`${API_BASE}/api/auth/me/${firebaseUID}`);
+            if (!res.ok) throw new Error("User not found");
+            return await res.json();
+        }
+    },
+    issuer: {
+        getStats: async (uid: string) => {
+            const res = await fetch(`${API_BASE}/api/issuer/dashboard/stats`, { headers: getHeaders(uid) });
+            if (!res.ok) throw new Error("Failed to fetch stats");
             return await res.json();
         },
-
-        pendingRequests: async () => {
-            const res = await fetch(`${API_BASE}/api/issuer/pending-requests`);
-            if (!res.ok) throw Error("Failed to fetch pending requests");
+        pendingRequests: async (uid: string) => {
+            const res = await fetch(`${API_BASE}/api/issuer/requests/pending`, { headers: getHeaders(uid) });
+            if (!res.ok) throw new Error("Failed to fetch pending requests");
             return await res.json();
         },
-
-        approve: async (id: string) => {
-            const res = await fetch(`${API_BASE}/api/issuer/approve/${id}`, { method: "POST" });
+        getRequestDetails: async (uid: string, id: string) => {
+            const res = await fetch(`${API_BASE}/api/issuer/requests/pending/${id}`, { headers: getHeaders(uid) });
+            if (!res.ok) throw new Error("Failed to fetch request details");
+            return await res.json();
+        },
+        approve: async (uid: string, id: string) => {
+            const res = await fetch(`${API_BASE}/api/issuer/requests/approve/${id}`, {
+                method: "POST", headers: getHeaders(uid)
+            });
             if (!res.ok) throw Error("Approval failed");
             return await res.json();
         },
-
-        reject: async (id: string) => {
-            const res = await fetch(`${API_BASE}/api/issuer/reject/${id}`, { method: "POST" });
+        reject: async (uid: string, id: string) => {
+            const res = await fetch(`${API_BASE}/api/issuer/requests/reject/${id}`, {
+                method: "POST", headers: getHeaders(uid)
+            });
             if (!res.ok) throw Error("Rejection failed");
             return await res.json();
         },
-
-        revoke: async (id: string, reason = "Revoked by issuer") => {
-            const res = await fetch(`${API_BASE}/api/issuer/issued/${id}`, {
-                method: "DELETE",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ reason })
-            });
+        getPendingVerifiers: async (uid: string) => {
+            const res = await fetch(`${API_BASE}/api/issuer/verifiers/pending`, { headers: getHeaders(uid) });
+            if (!res.ok) throw new Error("Failed to fetch pending verifiers");
             return await res.json();
         },
-
-        getStats: async () => {
-            const res = await fetch(`${API_BASE}/api/issuer/stats`);
-            if (!res.ok) return { totalIssued: 0, activeCredentials: 0, activePercent: 0, typesSupported: 0, pendingRequests: 0 };
+        approveVerifier: async (uid: string, verifierUid: string) => {
+            const res = await fetch(`${API_BASE}/api/issuer/verifiers/approve/${verifierUid}`, {
+                method: "POST", headers: getHeaders(uid)
+            });
+            if (!res.ok) throw Error("Verifier approval failed");
+            return await res.json();
+        },
+        getAuditLogs: async (uid: string) => {
+            const res = await fetch(`${API_BASE}/api/issuer/audit`, { headers: getHeaders(uid) });
+            if (!res.ok) throw new Error("Failed to fetch audit logs");
             return await res.json();
         }
     },
-
     holder: {
-        requestVerification: async (userId: string, documents: string[] = []) => {
-            const res = await fetch(`${API_BASE}/api/privaseal/holder/request-verification`, {
+        submitRequest: async (uid: string, data: any) => {
+            const headers: Record<string, string> = { "Content-Type": "application/json" };
+            if (uid) headers["x-firebase-uid"] = uid;
+
+            const res = await fetch(`${API_BASE}/api/wallet/request`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ user_id: userId, documents })
+                headers: headers,
+                body: JSON.stringify(data)
             });
-            if (!res.ok) throw Error("Failed to submit identity request");
+
+            if (!res.ok) {
+                const errorData = await res.json();
+                throw new Error(errorData.error || "Failed to submit identity request");
+            }
             return await res.json();
         },
-
-        getCredential: async (userId: string) => {
-            const res = await fetch(`${API_BASE}/api/privaseal/holder/credential/${userId}`);
-            if (!res.ok) throw Error("Failed to fetch credential");
-            return await res.json();
-        },
-
-        generateProof: async (attributes: any) => {
-            const res = await fetch(`${API_BASE}/api/privaseal/holder/generate-proof`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ attributes })
-            });
-            if (!res.ok) throw Error("Failed to generate ZK proof");
+        getDashboardInfo: async (uid: string) => {
+            const res = await fetch(`${API_BASE}/api/wallet/dashboard`, { headers: getHeaders(uid) });
+            if (!res.ok) throw new Error("Failed to fetch dashboard info");
             return await res.json();
         }
     },
-
     verifier: {
-        createRequest: async (predicateKey: string, verifierId: string, verifierName: string) => {
-            const res = await fetch(`${API_BASE}/api/verifier/request`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    predicate_key: predicateKey,
-                    verifier_id: verifierId,
-                    verifier_name: verifierName
-                }),
-            });
-            if (!res.ok) throw new Error("Failed to create verification request");
-            const data = await res.json();
-            return {
-                requestId: data.request.id,
-                qrCode: data.request.qrUri,
-                predicate: data.request.predicateLabel
-            };
+        getDashboardInfo: async (uid: string) => {
+            const res = await fetch(`${API_BASE}/api/verifier/dashboard`, { headers: getHeaders(uid) });
+            if (!res.ok) throw new Error("Failed to fetch dashboard info");
+            return await res.json();
         },
-
-        submitProof: async (requestId: string, proof: any, revealed: any, issuerPublicKey: string) => {
+        verifyCredential: async (uid: string, credentialId: string) => {
             const res = await fetch(`${API_BASE}/api/verifier/verify`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    request_id: requestId,
-                    proof: typeof proof === 'string' ? proof : JSON.stringify(proof),
-                    revealed_attributes: revealed,
-                    issuer_public_key: issuerPublicKey
-                }),
+                headers: getHeaders(uid),
+                body: JSON.stringify({ credentialId })
             });
-            if (!res.ok) throw new Error("Verification failed");
-            const data = await res.json();
-            return {
-                verified: data.verified,
-                request: data.request
-            };
-        },
-
-        getStats: async () => {
-            const res = await fetch(`${API_BASE}/api/verifier/stats`);
-            if (!res.ok) return { totalRequests: 0, verified: 0, failed: 0, pending: 0, successRate: 0 };
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.error || "Verification failed");
+            }
             return await res.json();
         }
     }

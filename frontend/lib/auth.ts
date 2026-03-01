@@ -72,8 +72,10 @@ export async function writeUserToFirestore(
                 ...extraData,
             });
         }
-    } catch (e) {
-        console.warn("[PrivaSeal] Firestore write failed:", e);
+    } catch (e: any) {
+        if (!e?.message?.includes("offline")) {
+            console.warn("[PrivaSeal] Firestore write failed:", e);
+        }
     }
 }
 
@@ -99,25 +101,25 @@ export async function getUserRoleFromFirestore(uid: string): Promise<UserRole | 
  * Syncs user to the Python backend after Firebase auth.
  * Non-fatal — if backend is down, Firestore still holds the role.
  */
+// ── Backend Sync ──────────────────────────────────────────────────────────────
+/**
+ * Syncs user to the Node backend after Firebase auth.
+ * Non-fatal — if backend is down, Firestore still holds the role.
+ */
 export async function syncUserToBackend(
     user: User,
-    role: string = "holder_user",
+    role: string = "holder", // role mapping update
     extraData: Record<string, unknown> = {}
 ): Promise<Record<string, unknown> | null> {
     try {
-        const idToken = await user.getIdToken();
-        const r = await fetch(`${BACKEND}/api/privaseal/user/firebase-sync`, {
+        let mappedRole = role === "issuer_admin" ? "issuer" : role === "holder_user" ? "holder" : role;
+        const r = await fetch(`/api/auth/session`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-                firebase_uid: user.uid,
+                firebaseUID: user.uid,
                 email: user.email || "",
-                display_name: user.displayName || "",
-                photo_url: user.photoURL || "",
-                provider: user.providerData[0]?.providerId || "unknown",
-                id_token: idToken,
-                role,
-                ...extraData,
+                role: mappedRole
             }),
         });
         const data = await r.json();
@@ -130,10 +132,10 @@ export async function syncUserToBackend(
 
 export async function fetchBackendProfile(uid: string): Promise<Record<string, unknown> | null> {
     try {
-        const r = await fetch(`${BACKEND}/api/privaseal/user/auth/me?uid=${uid}`);
+        const r = await fetch(`/api/auth/me/${uid}`);
         if (!r.ok) return null;
         const data = await r.json();
-        return data.success ? data.profile : null;
+        return data.success ? data.data : null;
     } catch {
         return null;
     }
@@ -149,6 +151,7 @@ export async function signUpWithEmail(
 ): Promise<AuthResult> {
     try {
         const auth = getFirebaseAuth();
+        if (!auth) throw new Error("Firebase Auth is not initialized. Please configure API keys.");
         const cred: UserCredential = await createUserWithEmailAndPassword(auth, email, password);
 
         if (displayName) {
@@ -174,6 +177,7 @@ export async function loginWithEmail(
 ): Promise<AuthResult> {
     try {
         const auth = getFirebaseAuth();
+        if (!auth) throw new Error("Firebase Auth is not initialized. Please configure API keys.");
         const cred = await signInWithEmailAndPassword(auth, email, password);
 
         // Sync with backend (updates last_login etc.) — non-blocking
@@ -194,6 +198,7 @@ export async function loginWithGoogle(role: UserRole = "holder_user"): Promise<A
     try {
         const auth = getFirebaseAuth();
         const provider = getGoogleProvider();
+        if (!auth || !provider) throw new Error("Firebase Auth is not initialized. Please configure API keys.");
         const cred = await signInWithPopup(auth, provider);
 
         // Check if existing user or new
@@ -216,7 +221,9 @@ export async function loginWithGoogle(role: UserRole = "holder_user"): Promise<A
 // ── Logout ─────────────────────────────────────────────────────────────────────
 export async function logoutUser(): Promise<void> {
     const auth = getFirebaseAuth();
-    await signOut(auth);
+    if (auth) {
+        await signOut(auth);
+    }
 }
 
 // ── Firebase → human-readable errors ─────────────────────────────────────────

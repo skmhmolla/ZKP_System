@@ -1,19 +1,18 @@
 const express = require('express');
 const dotenv = require('dotenv');
 const cors = require('cors');
-const connectDB = require('./config/db');
+const path = require('path');
+const db = require('./config/db'); // Initialize SQLite DB
 
 // Load env vars
 dotenv.config();
-
-// Connect to database
-connectDB();
 
 // Route files
 const auth = require('./routes/auth.routes');
 const wallet = require('./routes/wallet.routes');
 const issuer = require('./routes/issuer.routes');
 const verifier = require('./routes/verifier.routes');
+
 
 const app = express();
 
@@ -22,6 +21,9 @@ app.use(express.json());
 
 // Enable CORS
 app.use(cors());
+
+// Serve static files for media uploads
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Mount routers
 app.use('/api/auth', auth);

@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { signUpWithEmail, loginWithEmail, loginWithGoogle, UserRole } from "@/lib/auth";
+import { signUpWithEmail, loginWithEmail, loginWithGoogle, getUserRoleFromFirestore, UserRole } from "@/lib/auth";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 import { api } from "@/services/api";
@@ -136,6 +136,23 @@ export const PortalAuthModal = ({ isOpen, onClose, mode, initialTab = "login", i
                             return;
                         }
                     }
+
+                    // Check for Role Collision
+                    const actualRole = await getUserRoleFromFirestore(user.uid) || config.role;
+                    if (mode === "verifier" && actualRole === "holder_user") {
+                        await logout();
+                        setError("This email is already registered as a Wallet Holder. Verifiers must use a dedicated organization email address.");
+                        setSubmitState("error");
+                        return;
+                    }
+                    if (mode === "wallet" && actualRole === "verifier") {
+                        await logout();
+                        setError("This email is already registered as a Verifier. Wallet Holders must use a personal email address.");
+                        setSubmitState("error");
+                        return;
+                    }
+
+                    localStorage.setItem("user_role", actualRole);
                     setSubmitState("success");
                     await handleNavigateToDashboard(config.dashboard);
                 }
@@ -168,14 +185,7 @@ export const PortalAuthModal = ({ isOpen, onClose, mode, initialTab = "login", i
                 }
 
                 if (user) {
-                    // Auto-create verification request for wallet holders
-                    if (mode === "wallet") {
-                        try {
-                            await api.holder.requestVerification(user.uid, [`${idType} Scan`, "Proof of Residence"]);
-                        } catch {
-                            // Non-fatal — credential request can be made later
-                        }
-                    }
+                    localStorage.setItem("user_role", config.role);
                     setSubmitState("success");
                     await handleNavigateToDashboard(config.dashboard);
                 }
@@ -212,6 +222,23 @@ export const PortalAuthModal = ({ isOpen, onClose, mode, initialTab = "login", i
                         return;
                     }
                 }
+
+                // Check for Role Collision
+                const actualRole = await getUserRoleFromFirestore(user.uid) || config.googleRole;
+                if (mode === "verifier" && actualRole === "holder_user") {
+                    await logout();
+                    setError("This Google account is already registered as a Wallet Holder. Verifiers must use a dedicated organization email address.");
+                    setSubmitState("error");
+                    return;
+                }
+                if (mode === "wallet" && actualRole === "verifier") {
+                    await logout();
+                    setError("This Google account is already registered as a Verifier. Wallet Holders must use a personal email address.");
+                    setSubmitState("error");
+                    return;
+                }
+
+                localStorage.setItem("user_role", actualRole);
                 setSubmitState("success");
                 await handleNavigateToDashboard(config.dashboard);
             }

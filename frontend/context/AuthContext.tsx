@@ -11,7 +11,7 @@ import React, {
 import { onAuthStateChanged, User } from "firebase/auth";
 import { doc, onSnapshot, Unsubscribe, getDoc } from "firebase/firestore";
 import { getFirebaseAuth, getFirebaseFirestore } from "@/lib/firebase";
-import { logoutUser, fetchBackendProfile, writeUserToFirestore } from "@/lib/auth";
+import { logoutUser, fetchBackendProfile, writeUserToFirestore, syncUserToBackend } from "@/lib/auth";
 import { ADMIN_EMAILS } from "@/config/admin";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -83,8 +83,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (userDoc.exists() && userDoc.data()?.role) {
                 return userDoc.data().role as string;
             }
-        } catch (error) {
-            console.warn("[AuthContext] Firestore role check failed:", error);
+        } catch (error: any) {
+            if (!error?.message?.includes("offline")) {
+                console.warn("[AuthContext] Firestore role check failed:", error);
+            }
         }
 
         // 3. Try backend profile
@@ -187,7 +189,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 };
 
                 fetchBackendProfile(user.uid).then((backendData) => {
-                    setBackendProfile(prev => ({ ...initialProfile, ...backendData, role: prev?.role || fastRole }));
+                    if (!backendData) {
+                        // Critical Self-Healing: Missing from SQLite database! Re-sync dynamically.
+                        syncUserToBackend(user, fastRole).then((syncRes) => {
+                            if (syncRes && syncRes.data) {
+                                setBackendProfile(prev => ({ ...initialProfile, ...(syncRes.data as any), role: prev?.role || fastRole }));
+                            } else {
+                                setBackendProfile(initialProfile);
+                            }
+                        }).catch(() => setBackendProfile(initialProfile));
+                    } else {
+                        setBackendProfile(prev => ({ ...initialProfile, ...backendData, role: prev?.role || fastRole }));
+                    }
                 }).catch(() => setBackendProfile(initialProfile));
 
                 // 3. LISTEN FOR CHANGES

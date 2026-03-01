@@ -1,84 +1,76 @@
-const User = require('../models/User');
-const jwt = require('jsonwebtoken');
+const db = require('../config/db');
 
-// @desc    Register user
-// @route   POST /api/auth/register
+// @desc    Register or Sync User session
+// @route   POST /api/auth/session
 // @access  Public
-exports.register = async (req, res) => {
-    try {
-        const { name, email, password, role } = req.body;
+exports.syncSession = (req, res) => {
+    const { firebaseUID, email, role } = req.body;
 
-        // Check if user is trying to register as issuer (Forbidden)
-        if (role === 'issuer') {
-            return res.status(403).json({ success: false, error: 'Issuer registration is restricted' });
-        }
-
-        // Create user
-        const user = await User.create({
-            name,
-            email,
-            password,
-            role: role || 'holder',
-        });
-
-        sendTokenResponse(user, 201, res);
-    } catch (err) {
-        res.status(400).json({ success: false, error: err.message });
+    if (!firebaseUID || !email || !role) {
+        return res.status(400).json({ success: false, error: 'Please provide firebaseUID, email and role' });
     }
-};
 
-// @desc    Login user
-// @route   POST /api/auth/login
-// @access  Public
-exports.login = async (req, res) => {
-    try {
-        const { email, password } = req.body;
-
-        // Validate email & password
-        if (!email || !password) {
-            return res.status(400).json({ success: false, error: 'Please provide an email and password' });
-        }
-
-        // Check for user
-        const user = await User.findOne({ email }).select('+password');
-
-        if (!user) {
-            return res.status(401).json({ success: false, error: 'Invalid credentials' });
-        }
-
-        // Check for issuer admin restriction
-        if (user.role === 'issuer' && email !== process.env.ISSUER_ADMIN_EMAIL) {
-            return res.status(403).json({ success: false, error: 'Unauthorized issuer access' });
-        }
-
-        // Check if password matches
-        const isMatch = await user.matchPassword(password);
-
-        if (!isMatch) {
-            return res.status(401).json({ success: false, error: 'Invalid credentials' });
-        }
-
-        sendTokenResponse(user, 200, res);
-    } catch (err) {
-        res.status(400).json({ success: false, error: err.message });
+    // Issuer role restriction
+    if (role === 'issuer' && email !== 'skmahmudulhasanmolla@gmail.com') {
+        return res.status(403).json({ success: false, error: 'Unauthorized email for Issuer role' });
     }
-};
 
-// Get token from model, create cookie and send response
-const sendTokenResponse = (user, statusCode, res) => {
-    // Create token
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
-        expiresIn: process.env.JWT_EXPIRE,
+    // Check if user exists
+    db.get('SELECT * FROM users WHERE firebaseUID = ?', [firebaseUID], (err, user) => {
+        if (err) {
+            return res.status(500).json({ success: false, error: 'Database error' });
+        }
+
+        if (user) {
+            // FIX: Overwrite corrupted 'holder' rows caused by React Context race conditions on registration
+            if (user.role !== role) {
+                // If the user was erroneously injected as a holder but correctly asked to be a verifier/issuer
+                let updatedApproved = user.approved;
+                if (role === 'verifier') updatedApproved = 0; // Verifiers must be manually approved!
+                if (role === 'issuer') updatedApproved = 1;
+
+                db.run('UPDATE users SET role = ?, approved = ? WHERE firebaseUID = ?', [role, updatedApproved, firebaseUID], (updateErr) => {
+                    if (updateErr) return res.status(500).json({ success: false, error: 'Failed to correct user role' });
+                    user.role = role;
+                    user.approved = updatedApproved;
+                    return res.status(200).json({ success: true, data: user });
+                });
+            } else {
+                return res.status(200).json({ success: true, data: user });
+            }
+        } else {
+            // Register new user
+            let approved = 0;
+            // Holder or Issuer (specific email) are auto-approved. Verifiers need manual approval.
+            if (role === 'holder' || role === 'issuer') {
+                approved = 1;
+            }
+
+            db.run(`INSERT INTO users (firebaseUID, email, role, approved) VALUES (?, ?, ?, ?)`,
+                [firebaseUID, email, role, approved],
+                function (err) {
+                    if (err) {
+                        return res.status(500).json({ success: false, error: 'Could not create user' });
+                    }
+
+                    db.get('SELECT * FROM users WHERE id = ?', [this.lastID], (err, newUser) => {
+                        res.status(201).json({ success: true, data: newUser });
+                    });
+                }
+            );
+        }
     });
+};
 
-    res.status(statusCode).json({
-        success: true,
-        token,
-        user: {
-            id: user._id,
-            name: user.name,
-            email: user.email,
-            role: user.role
+// @desc    Check auth status
+// @route   GET /api/auth/me/:firebaseUID
+// @access  Public
+exports.getMe = (req, res) => {
+    const { firebaseUID } = req.params;
+    db.get('SELECT * FROM users WHERE firebaseUID = ?', [firebaseUID], (err, user) => {
+        if (err || !user) {
+            return res.status(404).json({ success: false, error: 'User not found' });
         }
+        res.status(200).json({ success: true, data: user });
     });
 };
